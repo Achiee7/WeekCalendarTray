@@ -1,0 +1,59 @@
+# .NET and IDE output
+**/bin/
+**/obj/
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.rsuser
+*.userosscache
+*.sln.docstates
+
+# Build, publish, and test artifacts
+dist/
+release/
+artifacts/
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.trx
+*.pdb
+*.zip
+
+# Local application state and diagnostics
+sync-settings.json
+events-cache.json
+local-events.json
+*.bak
+*.corrupt-*
+tokens/
+Logs/
+logs/
+*.log
+
+# Calendar exports and private subscription data
+*.ics
+*.ical
+docs/VIDEO_UI_ISSUES_*.md
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.Local.json
+appsettings.*.local.json
+*.pfx
+*.p12
+*.pem
+*.key
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+~$*

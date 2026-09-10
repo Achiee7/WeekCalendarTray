@@ -1,0 +1,120 @@
+name: Build and release
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows build, smoke, and package
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Validate release tag version
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -notmatch '^v(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?)$') {
+            throw "Release tags must use vMAJOR.MINOR.PATCH, optionally followed by a SemVer prerelease suffix."
+          }
+
+          [xml]$project = Get-Content .\src\WeekCalendarTray\WeekCalendarTray.csproj
+          $versionNode = Select-Xml -Xml $project -XPath '/Project/PropertyGroup/Version' | Select-Object -First 1
+          if ($null -eq $versionNode -or [string]::IsNullOrWhiteSpace($versionNode.Node.InnerText)) {
+            throw "WeekCalendarTray.csproj does not declare a Version."
+          }
+
+          if ($Matches.version -ne $versionNode.Node.InnerText.Trim()) {
+            throw "Tag version '$($Matches.version)' does not match project version '$($versionNode.Node.InnerText.Trim())'."
+          }
+
+      - name: Restore
+        run: dotnet restore .\WeekCalendarTray.sln
+
+      - name: Build
+        run: dotnet build .\WeekCalendarTray.sln -c Release --no-restore
+
+      - name: Run core smoke tests
+        run: dotnet run --project .\tests\WeekCalendarTray.SmokeTests\WeekCalendarTray.SmokeTests.csproj -c Release --no-build
+
+      - name: Run UI and layout smoke tests
+        run: dotnet run --project .\tests\WeekCalendarTray.UiTests\WeekCalendarTray.UiTests.csproj -c Release --no-build -- --artifacts=artifacts/ui
+
+      - name: Upload UI snapshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: week-calendar-tray-ui-snapshots
+          path: artifacts/ui
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish Windows package
+        shell: pwsh
+        run: .\scripts\Publish-Release.ps1 -Runtime win-x64
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: week-calendar-tray-win-x64
+          path: dist/WeekCalendarTray-win-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Create GitHub release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified package
+        uses: actions/download-artifact@v8
+        with:
+          name: week-calendar-tray-win-x64
+          path: release-assets
+
+      - name: Create release from tag
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $asset = ".\release-assets\WeekCalendarTray-win-x64.zip"
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME $asset `
+              --repo $env:GITHUB_REPOSITORY `
+              --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME $asset `
+              --repo $env:GITHUB_REPOSITORY `
+              --verify-tag `
+              --generate-notes `
+              --title "Week Calendar Tray $env:GITHUB_REF_NAME"
+          }
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release publication failed with exit code $LASTEXITCODE."
+          }
