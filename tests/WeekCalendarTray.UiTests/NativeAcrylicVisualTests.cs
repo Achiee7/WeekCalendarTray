@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using WeekCalendarTray.Core;
 using Drawing = System.Drawing;
 using Imaging = System.Drawing.Imaging;
 using Media = System.Windows.Media;
@@ -21,6 +22,49 @@ internal static class NativeAcrylicVisualTests
     private const uint DwmColorNone = 0xFFFFFFFE;
     private const int ComparisonInset = 24;
 
+    public static void RunPresentationHookChecks()
+    {
+        if (!CanVerifyNativeBackdrop()) return;
+        var enabled = ThemeManager.IsAcrylicEnabled;
+        var opacity = ThemeManager.AcrylicOpacityPercent;
+        var theme = ThemeManager.ThemePreference;
+        var owner = new Window { Width = 120, Height = 120, WindowStyle = WindowStyle.None, ShowInTaskbar = false };
+        var child = new Window { Width = 120, Height = 120, WindowStyle = WindowStyle.None, ShowInTaskbar = false };
+        var external = new Window { Width = 120, Height = 120, ShowInTaskbar = false };
+        try
+        {
+            ThemeManager.SetAcrylicEnabled(true);
+            owner.Show();
+            child.Owner = owner;
+            child.Show();
+            owner.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            var ownerHandle = new WindowInteropHelper(owner).Handle;
+            var childHandle = new WindowInteropHelper(child).Handle;
+            var externalHandle = new WindowInteropHelper(external).EnsureHandle();
+            var registration = GetAcrylicRegistration(owner);
+            AssertPresentationMessagePolicy(registration, ownerHandle, childHandle, externalHandle, child, false);
+            AssertSharedWindowSurfaceTint(owner, child);
+            owner.Hide();
+            AssertMessageIgnored(registration, ownerHandle, 0x0086, IntPtr.Zero, childHandle, "hidden owner");
+            ThemeManager.SetAcrylicEnabled(false);
+            AssertAcrylicRegistrationDisposed(owner, registration);
+            owner.Show();
+            child.Show();
+            ThemeManager.SetAcrylicEnabled(true);
+            var childRegistration = GetAcrylicRegistration(child);
+            child.Close();
+            AssertAcrylicRegistrationDisposed(child, childRegistration);
+            Console.WriteLine("Acrylic presentation message policy and hook cleanup passed.");
+        }
+        finally
+        {
+            external.Close();
+            child.Close();
+            owner.Close();
+            ThemeManager.SetAppearanceOptions(enabled, opacity, theme);
+        }
+    }
+
     public static void Run(MainWindow window, string artifactDirectory)
     {
         if (!CanVerifyNativeBackdrop())
@@ -35,8 +79,12 @@ internal static class NativeAcrylicVisualTests
 
         var workArea = SystemParameters.WorkArea;
         var backdrop = new SyntheticBackdropWindow(workArea);
+        EventDetailsWindow? detailsWindow = null;
         window.WindowStartupLocation = WindowStartupLocation.Manual;
-        window.Left = workArea.Left + Math.Max(0d, (workArea.Width - window.Width) / 2d);
+        const double detailsGap = 12d;
+        const double detailsWidth = 460d;
+        var combinedWidth = window.Width + detailsGap + detailsWidth;
+        window.Left = workArea.Left + Math.Max(0d, (workArea.Width - combinedWidth) / 2d);
         window.Top = workArea.Top + Math.Max(0d, (workArea.Height - window.Height) / 2d);
         window.Topmost = true;
 
@@ -59,6 +107,7 @@ internal static class NativeAcrylicVisualTests
             FlushDesktop(window);
 
             var handle = new WindowInteropHelper(window).Handle;
+            var ownerRegistration = GetAcrylicRegistration(window);
             AssertDwmAttribute(handle, DwmwaSystemBackdropType, DwmTransientWindowBackdrop, "system backdrop");
             AssertOptionalDwmAttribute(handle, DwmwaWindowCornerPreference, DwmRoundPreference, "corner preference");
             AssertOptionalDwmAttribute(
@@ -86,11 +135,55 @@ internal static class NativeAcrylicVisualTests
             using var acrylicPair = CaptureResponsivePair(
                 window,
                 backdrop,
-                artifactDirectory);
+                artifactDirectory,
+                "MainWindow-native-acrylic-backdrop");
+
+            window.OpenEventDetailsCommand.Execute(CreateSyntheticDetailsEvent());
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            detailsWindow = Application.Current.Windows
+                .OfType<EventDetailsWindow>()
+                .SingleOrDefault(candidate => candidate.Owner == window && candidate.IsVisible)
+                ?? throw new InvalidOperationException("synthetic owned event-details window did not open");
+            detailsWindow.Activate();
+            FlushDesktop(detailsWindow);
+
+            AssertOwnedChildActivation(window, detailsWindow, workArea);
+            AssertSharedWindowSurfaceTint(window, detailsWindow);
+            var detailsHandle = new WindowInteropHelper(detailsWindow).Handle;
+            var detailsRegistration = GetAcrylicRegistration(detailsWindow);
+            AssertDwmAttribute(handle, DwmwaSystemBackdropType, DwmTransientWindowBackdrop,
+                "inactive owner system backdrop");
+            AssertDwmAttribute(detailsHandle, DwmwaSystemBackdropType, DwmTransientWindowBackdrop,
+                "active details system backdrop");
+            AssertPresentationMessagePolicy(
+                ownerRegistration,
+                handle,
+                detailsHandle,
+                new WindowInteropHelper(backdrop).Handle,
+                detailsWindow);
+
+            using var inactiveOwnerPair = CaptureResponsivePair(
+                window,
+                backdrop,
+                artifactDirectory,
+                "MainWindow-native-owner-inactive-details-active-backdrop");
+            Assert(
+                inactiveOwnerPair.Difference >= 2d,
+                $"inactive owner stopped responding to its backdrop while details was active ({inactiveOwnerPair.Difference:0.##})");
+            Assert(
+                inactiveOwnerPair.Difference >= acrylicPair.Difference * 0.5d,
+                $"inactive owner backdrop response {inactiveOwnerPair.Difference:0.##} fell below half its active response {acrylicPair.Difference:0.##}");
+
+            detailsWindow.Close();
+            AssertAcrylicRegistrationDisposed(detailsWindow, detailsRegistration);
+            detailsWindow = null;
+            window.Activate();
+            FlushDesktop(window);
 
             ThemeManager.SetAcrylicEnabled(false);
             ThemeManager.ApplyCurrentTheme();
             FlushDesktop(window);
+            AssertAcrylicRegistrationDisposed(window, ownerRegistration);
 
             backdrop.UsePaletteA();
             FlushDesktop(backdrop);
@@ -119,6 +212,7 @@ internal static class NativeAcrylicVisualTests
         }
         finally
         {
+            detailsWindow?.Close();
             ThemeManager.SetAcrylicEnabled(false);
             ThemeManager.ApplyCurrentTheme();
             window.Hide();
@@ -223,7 +317,8 @@ internal static class NativeAcrylicVisualTests
     private static CapturePair CaptureResponsivePair(
         Window window,
         SyntheticBackdropWindow backdrop,
-        string artifactDirectory)
+        string artifactDirectory,
+        string fileStem)
     {
         Drawing.Bitmap? first = null;
         Drawing.Bitmap? second = null;
@@ -238,12 +333,12 @@ internal static class NativeAcrylicVisualTests
             FlushDesktop(backdrop);
             first = CaptureWindow(window, Path.Combine(
                 artifactDirectory,
-                "MainWindow-native-acrylic-backdrop-a.png"));
+                $"{fileStem}-a.png"));
             backdrop.UsePaletteB();
             FlushDesktop(backdrop);
             second = CaptureWindow(window, Path.Combine(
                 artifactDirectory,
-                "MainWindow-native-acrylic-backdrop-b.png"));
+                $"{fileStem}-b.png"));
             difference = MeanPixelDifference(first, second, ComparisonInset);
             if (difference >= 2d)
             {
@@ -254,6 +349,199 @@ internal static class NativeAcrylicVisualTests
         }
 
         return new CapturePair(first!, second!, difference);
+    }
+
+    private static CalendarEventViewModel CreateSyntheticDetailsEvent()
+    {
+        var date = new DateOnly(2026, 9, 10);
+        var localTime = date.ToDateTime(new TimeOnly(10, 0));
+        var start = new DateTimeOffset(localTime, TimeZoneInfo.Local.GetUtcOffset(localTime));
+        return new CalendarEventViewModel(new CalendarEvent(
+            "native-owner-child-test",
+            "Synthetic test calendar",
+            "native-owner-child-event",
+            "Synthetic event details acrylic verification",
+            start,
+            start.AddHours(1),
+            false,
+            "Synthetic test location",
+            "Synthetic content only",
+            "Synthetic organizer",
+            "https://example.invalid/native-owner-child-test"));
+    }
+
+    private static void AssertOwnedChildActivation(
+        MainWindow owner,
+        EventDetailsWindow child,
+        Rect workArea)
+    {
+        var ownerHandle = new WindowInteropHelper(owner).Handle;
+        var childHandle = new WindowInteropHelper(child).Handle;
+        Assert(child.Owner == owner, "event details lost its MainWindow owner");
+        Assert(child.IsActive, "owned event details is not the active WPF window");
+        Assert(!owner.IsActive, "owner remained active while its event details child had focus");
+        Assert(GetForegroundWindow() == childHandle,
+            "owned event details did not hold the real foreground HWND");
+        Assert(ownerHandle != IntPtr.Zero && childHandle != IntPtr.Zero,
+            "owner or details window did not have a native HWND");
+
+        var ownerBounds = new Rect(owner.Left, owner.Top, owner.ActualWidth, owner.ActualHeight);
+        var childBounds = new Rect(child.Left, child.Top, child.ActualWidth, child.ActualHeight);
+        Assert(!ownerBounds.IntersectsWith(childBounds),
+            $"owner {ownerBounds} overlaps active details {childBounds}");
+        Assert(Contains(workArea, ownerBounds), $"owner {ownerBounds} is outside work area {workArea}");
+        Assert(Contains(workArea, childBounds), $"active details {childBounds} is outside work area {workArea}");
+    }
+
+    private static void AssertSharedWindowSurfaceTint(Window owner, Window child)
+    {
+        Assert(owner.Resources.Contains("WindowSurfaceBrush"),
+            "acrylic owner has no window-local surface tint");
+        Assert(child.Resources.Contains("WindowSurfaceBrush"),
+            "acrylic details has no window-local surface tint");
+        var ownerBrush = owner.Resources["WindowSurfaceBrush"] as Media.SolidColorBrush
+            ?? throw new InvalidOperationException("owner WindowSurfaceBrush is not a solid color");
+        var childBrush = child.Resources["WindowSurfaceBrush"] as Media.SolidColorBrush
+            ?? throw new InvalidOperationException("details WindowSurfaceBrush is not a solid color");
+        var expectedAlpha = (byte)Math.Round(ThemeManager.AcrylicOpacityPercent * 2.55d);
+        Assert(ownerBrush.Color.A == expectedAlpha,
+            $"owner surface alpha was {ownerBrush.Color.A}, expected {expectedAlpha}");
+        Assert(childBrush.Color.A == expectedAlpha,
+            $"details surface alpha was {childBrush.Color.A}, expected {expectedAlpha}");
+        Assert(ownerBrush.Color == childBrush.Color,
+            $"owner surface {ownerBrush.Color} differs from details surface {childBrush.Color}");
+    }
+
+    private static object GetAcrylicRegistration(Window window)
+    {
+        var registrations = GetAcrylicRegistrations();
+        return registrations[window]
+            ?? throw new InvalidOperationException($"{window.GetType().Name} has no acrylic registration");
+    }
+
+    private static System.Collections.IDictionary GetAcrylicRegistrations()
+    {
+        var field = typeof(AcrylicWindowManager).GetField(
+            "Registrations",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(typeof(AcrylicWindowManager).FullName, "Registrations");
+        return field.GetValue(null) as System.Collections.IDictionary
+            ?? throw new InvalidOperationException("acrylic registration table is unavailable");
+    }
+
+    private static void AssertPresentationMessagePolicy(
+        object registration,
+        IntPtr ownerHandle,
+        IntPtr childHandle,
+        IntPtr externalHandle,
+        Window activeChild,
+        bool requireActiveChild = true)
+    {
+        const int wmActivate = 0x0006;
+        const int wmSetFocus = 0x0007;
+        const int wmNcActivate = 0x0086;
+
+        Assert(GetPrivateField<HwndSource>(registration, "_windowSource") is not null,
+            "owner presentation hook was not attached");
+        AssertMessageIgnored(registration, ownerHandle, wmActivate, IntPtr.Zero, IntPtr.Zero,
+            "WM_ACTIVATE");
+        AssertMessageIgnored(registration, ownerHandle, wmSetFocus, IntPtr.Zero, IntPtr.Zero,
+            "WM_SETFOCUS");
+        AssertMessageIgnored(registration, ownerHandle, wmNcActivate, new IntPtr(1), childHandle,
+            "active WM_NCACTIVATE");
+        AssertMessageIgnored(registration, ownerHandle, wmNcActivate, IntPtr.Zero, IntPtr.Zero,
+            "inactive WM_NCACTIVATE with zero target");
+        AssertMessageIgnored(registration, ownerHandle, wmNcActivate, IntPtr.Zero, new IntPtr(-1),
+            "inactive WM_NCACTIVATE with sentinel target");
+        AssertMessageIgnored(registration, ownerHandle, wmNcActivate, IntPtr.Zero, externalHandle,
+            "inactive WM_NCACTIVATE with external target");
+
+        var foregroundBefore = GetForegroundWindow();
+        var childWasActive = activeChild.IsActive;
+        if (requireActiveChild)
+            Assert(foregroundBefore == childHandle && childWasActive,
+                "details child did not own focus before inactive presentation test");
+        var (result, handled) = InvokeWindowProc(
+            registration,
+            ownerHandle,
+            wmNcActivate,
+            IntPtr.Zero,
+            childHandle);
+        var testedOwner = GetPrivateField<Window>(registration, "_window");
+        Assert(handled, $"inactive WM_NCACTIVATE was not handled: visible={testedOwner?.IsVisible}, style={testedOwner?.WindowStyle}, state={testedOwner?.WindowState}, applied={GetPrivateFieldValue<bool>(registration, "_backdropApplied")}, disposed={GetPrivateFieldValue<bool>(registration, "_disposed")}, owner={ownerHandle}, child={childHandle}");
+        Assert(result == new IntPtr(1), $"inactive WM_NCACTIVATE returned {result}, expected 1");
+        Assert(GetForegroundWindow() == foregroundBefore && activeChild.IsActive == childWasActive,
+            "presentation-only WM_NCACTIVATE handling changed input focus");
+    }
+
+    private static void AssertMessageIgnored(
+        object registration,
+        IntPtr handle,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        string subject)
+    {
+        var foregroundBefore = GetForegroundWindow();
+        var (result, handled) = InvokeWindowProc(registration, handle, message, wParam, lParam);
+        Assert(!handled, $"presentation hook intercepted {subject}");
+        Assert(result == IntPtr.Zero, $"presentation hook returned {result} for {subject}");
+        Assert(GetForegroundWindow() == foregroundBefore, $"{subject} reflection test changed foreground focus");
+    }
+
+    private static (IntPtr Result, bool Handled) InvokeWindowProc(
+        object registration,
+        IntPtr handle,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam)
+    {
+        var method = registration.GetType().GetMethod(
+            "WindowProc",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(registration.GetType().FullName, "WindowProc");
+        object?[] arguments = [handle, message, wParam, lParam, false];
+        var result = method.Invoke(registration, arguments) is IntPtr pointer
+            ? pointer
+            : throw new InvalidOperationException("WindowProc did not return an IntPtr");
+        return (result, arguments[4] is true);
+    }
+
+    private static void AssertAcrylicRegistrationDisposed(Window window, object registration)
+    {
+        Assert(GetPrivateField<HwndSource>(registration, "_windowSource") is null,
+            $"{window.GetType().Name} retained its presentation hook after cleanup");
+        Assert(GetPrivateFieldValue<bool>(registration, "_disposed"),
+            $"{window.GetType().Name} acrylic registration was not disposed");
+        Assert(!GetAcrylicRegistrations().Contains(window),
+            $"{window.GetType().Name} remained in the acrylic registration table after cleanup");
+    }
+
+    private static T? GetPrivateField<T>(object target, string name)
+        where T : class
+    {
+        var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(target.GetType().FullName, name);
+        return field.GetValue(target) as T;
+    }
+
+    private static T GetPrivateFieldValue<T>(object target, string name)
+        where T : struct
+    {
+        var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(target.GetType().FullName, name);
+        return field.GetValue(target) is T value
+            ? value
+            : throw new InvalidOperationException($"{target.GetType().Name}.{name} is not {typeof(T).Name}");
+    }
+
+    private static bool Contains(Rect outer, Rect inner)
+    {
+        const double tolerance = 1d;
+        return inner.Left >= outer.Left - tolerance
+            && inner.Top >= outer.Top - tolerance
+            && inner.Right <= outer.Right + tolerance
+            && inner.Bottom <= outer.Bottom + tolerance;
     }
 
     private static double MeanPixelDifference(
@@ -503,4 +791,7 @@ internal static class NativeAcrylicVisualTests
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr windowHandle, out NativeRect rectangle);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 }

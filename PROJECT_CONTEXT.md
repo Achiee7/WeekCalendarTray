@@ -6,7 +6,8 @@ Week Calendar Tray is a .NET 8 WPF notification-area utility for Windows. It pre
 
 ## Release State
 
-- Current source release: `1.2.0`, dated 2026-09-10.
+- Current source release: `1.2.1`, dated 2026-09-10.
+- Version 1.2.1 addresses inactive calendar glass while event details is active. A borderless-window WM_NCACTIVATE presentation hook leaves input activation and keyboard focus untouched and is detached on disable/close. Native desktop pixel verification still depends on an accessible desktop.
 - The 1.2.0 package and local installation were verified; settings and local-event hashes and startup preference were preserved.
 - Runtime target: `win-x64`.
 - Package type: self-contained, single-file executable plus PowerShell installer/uninstaller and documentation.

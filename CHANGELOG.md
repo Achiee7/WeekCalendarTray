@@ -6,6 +6,18 @@ All notable changes to Week Calendar Tray are documented here. The format follow
 
 No entries yet.
 
+## [1.2.1] - 2026-09-10
+
+### Fixed
+
+- Keep the calendar's glass presentation consistent when event details receives focus, without intercepting input activation or stealing focus.
+- Remove the native presentation hook when glass is disabled or a window closes.
+- Exclude remote conversation attachments from source control.
+
+Build, core smoke tests, and UI tests passed locally, including independently executed presentation-message policy and hook cleanup checks. Native visual coverage now includes the inactive calendar alongside an active owned details window.
+
+Native desktop pixels still require verification on an accessible interactive desktop. Inaccessible captures are reported as skipped, not as successful blur tests.
+
 ## [1.2.0] - 2026-09-10
 
 ### Added

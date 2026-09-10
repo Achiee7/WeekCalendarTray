@@ -78,6 +78,7 @@ internal static class Program
             if (CanRunInteractiveNativeTests())
             {
                 TestNativeAcrylicAndTintRestoration(mainWindow);
+                NativeAcrylicVisualTests.RunPresentationHookChecks();
                 if (nativeVisualRequested)
                 {
                     NativeAcrylicVisualTests.Run(mainWindow, artifactDirectory);

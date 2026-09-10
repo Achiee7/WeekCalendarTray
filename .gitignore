@@ -23,6 +23,7 @@ coverage/
 *.zip
 
 # Local application state and diagnostics
+.codex-remote-attachments/
 sync-settings.json
 events-cache.json
 local-events.json

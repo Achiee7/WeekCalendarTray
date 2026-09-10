@@ -12,6 +12,7 @@ internal static class AcrylicWindowManager
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmSystemBackdropNone = 1;
     private const int DwmSystemBackdropTransientWindow = 3;
+    private const int WmNcActivate = 0x0086;
     private static readonly Dictionary<Window, AcrylicWindowRegistration> Registrations = [];
 
     public static void Apply(
@@ -90,6 +91,7 @@ internal static class AcrylicWindowManager
         private bool _contentRenderedReapplyAvailable = true;
         private bool _postRenderApplyQueued;
         private bool _useDarkMode;
+        private HwndSource? _windowSource;
 
         public AcrylicWindowRegistration(Window window, Action<Window> remove)
         {
@@ -99,6 +101,8 @@ internal static class AcrylicWindowManager
             _window.ContentRendered += Window_ContentRendered;
             _window.IsVisibleChanged += Window_IsVisibleChanged;
             _window.SourceInitialized += Window_SourceInitialized;
+            _window.Activated += Window_ActivationChanged;
+            _window.Deactivated += Window_ActivationChanged;
         }
 
         public void Apply(bool useDarkMode, Media.Color accentColor, int opacityPercent)
@@ -160,6 +164,17 @@ internal static class AcrylicWindowManager
 
                 _backdropApplied = true;
                 ApplyWindowTint();
+                if (_window.WindowStyle == WindowStyle.None)
+                {
+                    AttachPresentationHook(HwndSource.FromHwnd(handle));
+                    if (_window.IsVisible && _window.WindowState != WindowState.Minimized)
+                    {
+                        var groupActive = _window.IsActive || IsSameWindowGroup(handle, GetForegroundWindow());
+                        _ = DefWindowProc(handle, WmNcActivate,
+                            groupActive ? new IntPtr(1) : IntPtr.Zero,
+                            groupActive ? new IntPtr(-1) : IntPtr.Zero);
+                    }
+                }
             }
             catch (Exception ex) when (ex is DllNotFoundException
                 or EntryPointNotFoundException
@@ -188,6 +203,13 @@ internal static class AcrylicWindowManager
             _window.ContentRendered -= Window_ContentRendered;
             _window.IsVisibleChanged -= Window_IsVisibleChanged;
             _window.SourceInitialized -= Window_SourceInitialized;
+            _window.Activated -= Window_ActivationChanged;
+            _window.Deactivated -= Window_ActivationChanged;
+            if (_windowSource is not null)
+            {
+                _windowSource.RemoveHook(WindowProc);
+                _windowSource = null;
+            }
             RestoreWindowTint();
 
             var handle = new WindowInteropHelper(_window).Handle;
@@ -214,6 +236,12 @@ internal static class AcrylicWindowManager
                 }
 
                 ResetExtendedFrame(handle);
+                if (_backdropApplied && _window.IsVisible)
+                {
+                    _ = DefWindowProc(handle, WmNcActivate,
+                        _window.IsActive ? new IntPtr(1) : IntPtr.Zero,
+                        _window.IsActive ? new IntPtr(-1) : IntPtr.Zero);
+                }
             }
             catch (Exception ex) when (ex is DllNotFoundException
                 or EntryPointNotFoundException
@@ -221,6 +249,59 @@ internal static class AcrylicWindowManager
             {
                 AppDiagnostics.Log("Remove acrylic backdrop", ex);
             }
+        }
+
+        private void AttachPresentationHook(HwndSource? source)
+        {
+            if (source is null || ReferenceEquals(source, _windowSource))
+            {
+                return;
+            }
+
+            _windowSource?.RemoveHook(WindowProc);
+            _windowSource = source;
+            _windowSource.AddHook(WindowProc);
+        }
+
+        private IntPtr WindowProc(IntPtr handle, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            if (!_disposed && _backdropApplied && message == WmNcActivate
+                && wParam == IntPtr.Zero && _window.IsVisible
+                && _window.WindowStyle == WindowStyle.None
+                && _window.WindowState != WindowState.Minimized
+                && IsSameWindowGroup(handle, lParam))
+            {
+                // Preserve glass within the owned-window group, not input focus. Leave other apps alone.
+                _ = DefWindowProc(handle, message, new IntPtr(1), new IntPtr(-1));
+                handled = true;
+                return new IntPtr(1); // Allow the real activation change to complete.
+            }
+
+            return IntPtr.Zero;
+        }
+
+        private static bool IsSameWindowGroup(IntPtr handle, IntPtr target)
+        {
+            if (target == IntPtr.Zero || target == new IntPtr(-1))
+            {
+                return false;
+            }
+
+            var owner = FindRegisteredRootOwner(handle);
+            return owner is not null && ReferenceEquals(owner, FindRegisteredRootOwner(target));
+        }
+
+        private static Window? FindRegisteredRootOwner(IntPtr handle)
+        {
+            // Use WPF ownership: hidden taskbar-owner HWNDs are not application window groups.
+            var window = Registrations.Keys.FirstOrDefault(candidate =>
+                new WindowInteropHelper(candidate).Handle == handle);
+            while (window?.Owner is { } owner)
+            {
+                window = owner;
+            }
+
+            return window;
         }
 
         private void ApplyWindowTint()
@@ -288,6 +369,19 @@ internal static class AcrylicWindowManager
         {
             return (byte)Math.Round(
                 (baseChannel * (1d - accentWeight)) + (accentChannel * accentWeight));
+        }
+
+        private void Window_ActivationChanged(object? sender, EventArgs e)
+        {
+            var handle = new WindowInteropHelper(_window).Handle;
+            foreach (var registration in Registrations.Values.ToArray())
+            {
+                var target = new WindowInteropHelper(registration._window).Handle;
+                if (IsSameWindowGroup(handle, target))
+                {
+                    registration.QueuePostRenderApply();
+                }
+            }
         }
 
         private void Window_SourceInitialized(object? sender, EventArgs e)
@@ -358,6 +452,12 @@ internal static class AcrylicWindowManager
             Bottom = -1
         };
     }
+
+    [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
+    private static extern IntPtr DefWindowProc(IntPtr windowHandle, int message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(
