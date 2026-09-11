@@ -68,6 +68,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         TogglePrayerPanelCommand = new RelayCommand(_ => TogglePrayerPanel());
         ShowMonthViewCommand = new RelayCommand(_ => ShowMonthView());
         ShowDayViewCommand = new RelayCommand(_ => ShowDayView());
+        DayOrTodayCommand = new RelayCommand(_ =>
+        {
+            if (_displayMode == CalendarDisplayMode.Day) ShowToday();
+            else ShowDayView();
+        });
 
         _prayerTimer = new DispatcherTimer
         {
@@ -112,6 +117,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ICommand NextMonthCommand { get; }
 
     public ICommand ShowMonthViewCommand { get; }
+
+    public ICommand DayOrTodayCommand { get; }
 
     public ICommand ShowDayViewCommand { get; }
 
@@ -175,7 +182,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? new GridLength(0)
         : new GridLength(30);
 
-    public double AgendaMaxHeight => _displayMode == CalendarDisplayMode.Day ? 360 : 104;
+    // Day view already names the date in the header, so its separate title row would
+    // only repeat it.
+    public GridLength NavigationTitleRowHeight => _displayMode == CalendarDisplayMode.Day
+        ? new GridLength(0)
+        : new GridLength(40);
+
+    public Visibility NavigationTitleVisibility => _displayMode == CalendarDisplayMode.Day
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public string DayButtonContent => _displayMode == CalendarDisplayMode.Day ? "Today" : "Day";
+
+    public string DayButtonToolTip => _displayMode == CalendarDisplayMode.Day
+        ? "Jump to today"
+        : "Show the full agenda for the selected day";
+
+    public double AgendaMaxHeight => _displayMode == CalendarDisplayMode.Day ? 390 : 104;
 
     public string PreviousStepToolTip => _displayMode switch
     {
@@ -572,6 +595,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(IsDayView));
         OnPropertyChanged(nameof(CalendarGridRowHeight));
         OnPropertyChanged(nameof(WeekdayHeaderRowHeight));
+        OnPropertyChanged(nameof(NavigationTitleRowHeight));
+        OnPropertyChanged(nameof(NavigationTitleVisibility));
+        OnPropertyChanged(nameof(DayButtonContent));
+        OnPropertyChanged(nameof(DayButtonToolTip));
         OnPropertyChanged(nameof(AgendaMaxHeight));
         OnPropertyChanged(nameof(PreviousStepToolTip));
         OnPropertyChanged(nameof(NextStepToolTip));

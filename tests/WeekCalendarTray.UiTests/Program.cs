@@ -54,8 +54,13 @@ internal static class Program
             TestMeasuredDayStripe(mainWindow);
             PopulateMainWindow(mainWindow);
 
-            mainWindow.ShowDayViewCommand.Execute(null);
+            Assert(mainWindow.DayButtonContent == "Day", "month view did not label the toggle Day");
+            mainWindow.DayOrTodayCommand.Execute(null);
             Assert(mainWindow.IsDayView, "day toggle did not select day view");
+            Assert(mainWindow.DayButtonContent == "Today", "day view did not relabel the toggle Today");
+            Assert(
+                mainWindow.NavigationTitleRowHeight.Value == 0d,
+                "day view kept the duplicate title row");
             Assert(mainWindow.DayViewVisibility == Visibility.Visible, "day view did not become visible");
             Assert(mainWindow.CalendarGridRowHeight.Value == 0d, "day view retained the month grid row");
             Assert(mainWindow.WeekdayHeaderRowHeight.Value == 0d, "day view retained the weekday header row");
@@ -70,8 +75,19 @@ internal static class Program
             RenderWindowContent(
                 mainWindow,
                 Path.Combine(artifactDirectory, "MainWindow-day-dark.png"));
+            // A second press, now labelled Today, must jump to today rather than re-enter Day view.
+            mainWindow.DayOrTodayCommand.Execute(null);
+            Assert(
+                mainWindow.SelectedDate == DateOnly.FromDateTime(DateTime.Now),
+                "second day-toggle press did not jump to today");
+            Assert(mainWindow.IsDayView, "jumping to today left day view");
+
             mainWindow.ShowMonthViewCommand.Execute(null);
             Assert(mainWindow.IsMonthView, "month toggle did not restore month view");
+            Assert(mainWindow.DayButtonContent == "Day", "month view did not restore the Day label");
+            Assert(
+                mainWindow.NavigationTitleRowHeight.Value == 40d,
+                "month view lost its title row");
             Assert(mainWindow.WeekdayHeaderRowHeight.Value == 30d, "month view lost the weekday header row");
             Assert(mainWindow.PreviousStepToolTip == "Previous month", "month view kept the day navigation tooltip");
 

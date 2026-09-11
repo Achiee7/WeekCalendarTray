@@ -424,7 +424,7 @@
         <Grid Grid.Column="2" Margin="16">
             <Grid.RowDefinitions>
                 <RowDefinition Height="42" />
-                <RowDefinition Height="46" />
+                <RowDefinition Height="{Binding NavigationTitleRowHeight}" />
                 <RowDefinition Height="{Binding WeekdayHeaderRowHeight}" />
                 <RowDefinition Height="{Binding CalendarGridRowHeight}" />
                 <RowDefinition Height="1" />
@@ -456,12 +456,21 @@
                                    Text="{Binding SelectedWeekTitle}" />
                     </StackPanel>
                 </Button>
-                <Button Grid.Column="1"
-                        Width="58"
-                        Height="30"
-                        Command="{Binding TodayCommand}"
-                        Content="Today"
-                        Style="{StaticResource TrayButtonStyle}" />
+                <StackPanel Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Orientation="Horizontal">
+                    <Button Width="48"
+                            Command="{Binding ShowMonthViewCommand}"
+                            Content="Month"
+                            Style="{StaticResource MonthToggleButtonStyle}"
+                            ToolTip="Show the month grid" />
+                    <Button Width="52"
+                            Margin="2,0,0,0"
+                            Command="{Binding DayOrTodayCommand}"
+                            Content="{Binding DayButtonContent}"
+                            Style="{StaticResource DayToggleButtonStyle}"
+                            ToolTip="{Binding DayButtonToolTip}" />
+                </StackPanel>
                 <Button x:Name="MoreButton"
                         Grid.Column="3"
                         Width="30"
@@ -509,15 +518,9 @@
                         Style="{StaticResource TrayButtonStyle}" />
             </Grid>
 
-            <Grid Grid.Row="1" VerticalAlignment="Center">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="8" />
-                    <ColumnDefinition Width="38" />
-                    <ColumnDefinition Width="8" />
-                    <ColumnDefinition Width="38" />
-                </Grid.ColumnDefinitions>
+            <Grid Grid.Row="1"
+                  VerticalAlignment="Center"
+                  Visibility="{Binding NavigationTitleVisibility}">
                 <Button Command="{Binding ZoomOutCalendarCommand}"
                         Style="{StaticResource CalendarTitleButtonStyle}"
                         ToolTip="Show wider calendar view">
@@ -528,35 +531,6 @@
                                FontWeight="SemiBold"
                                Text="{Binding MonthTitle}" />
                 </Button>
-                <StackPanel Grid.Column="1"
-                            VerticalAlignment="Center"
-                            Orientation="Horizontal">
-                    <Button Width="48"
-                            Command="{Binding ShowMonthViewCommand}"
-                            Content="Month"
-                            Style="{StaticResource MonthToggleButtonStyle}"
-                            ToolTip="Show the month grid" />
-                    <Button Width="38"
-                            Margin="2,0,0,0"
-                            Command="{Binding ShowDayViewCommand}"
-                            Content="Day"
-                            Style="{StaticResource DayToggleButtonStyle}"
-                            ToolTip="Show the full agenda for the selected day" />
-                </StackPanel>
-                <Button Grid.Column="3"
-                        Width="34"
-                        Height="30"
-                        Command="{Binding PreviousMonthCommand}"
-                        Content="&lt;"
-                        Style="{StaticResource TrayButtonStyle}"
-                        ToolTip="{Binding PreviousStepToolTip}" />
-                <Button Grid.Column="5"
-                        Width="34"
-                        Height="30"
-                        Command="{Binding NextMonthCommand}"
-                        Content="&gt;"
-                        Style="{StaticResource TrayButtonStyle}"
-                        ToolTip="{Binding NextStepToolTip}" />
             </Grid>
 
             <Grid Grid.Row="2" Visibility="{Binding MonthViewVisibility}">
@@ -758,13 +732,36 @@
                            Text="{Binding AgendaEmptyText}"
                            TextWrapping="Wrap"
                            Visibility="{Binding AgendaEmptyVisibility}" />
-                <TextBlock Grid.Row="2"
-                           Margin="0,6,0,0"
-                           Foreground="{DynamicResource SubtleTextBrush}"
-                           FontFamily="Segoe UI"
-                           FontSize="11"
-                           Text="{Binding SyncStatusText}"
-                           TextTrimming="CharacterEllipsis" />
+                <Grid Grid.Row="2" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="8" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock VerticalAlignment="Center"
+                               Foreground="{DynamicResource SubtleTextBrush}"
+                               FontFamily="Segoe UI"
+                               FontSize="11"
+                               Text="{Binding SyncStatusText}"
+                               TextTrimming="CharacterEllipsis" />
+                    <StackPanel Grid.Column="2"
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal">
+                        <Button Width="34"
+                                Height="26"
+                                Command="{Binding PreviousMonthCommand}"
+                                Content="&lt;"
+                                Style="{StaticResource TrayButtonStyle}"
+                                ToolTip="{Binding PreviousStepToolTip}" />
+                        <Button Width="34"
+                                Height="26"
+                                Margin="6,0,0,0"
+                                Command="{Binding NextMonthCommand}"
+                                Content="&gt;"
+                                Style="{StaticResource TrayButtonStyle}"
+                                ToolTip="{Binding NextStepToolTip}" />
+                    </StackPanel>
+                </Grid>
             </Grid>
         </Grid>
         </Grid>
