@@ -15,7 +15,8 @@ internal enum CalendarDisplayMode
 {
     Month,
     Year,
-    Decade
+    Decade,
+    Day
 }
 
 public partial class MainWindow : Window, INotifyPropertyChanged
@@ -65,6 +66,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OpenSettingsCommand = new RelayCommand(_ => OpenSettings());
         OpenEventDetailsCommand = new RelayCommand(OpenEventDetails);
         TogglePrayerPanelCommand = new RelayCommand(_ => TogglePrayerPanel());
+        ShowMonthViewCommand = new RelayCommand(_ => ShowMonthView());
+        ShowDayViewCommand = new RelayCommand(_ => ShowDayView());
 
         _prayerTimer = new DispatcherTimer
         {
@@ -108,6 +111,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public ICommand NextMonthCommand { get; }
 
+    public ICommand ShowMonthViewCommand { get; }
+
+    public ICommand ShowDayViewCommand { get; }
+
     public ICommand TodayCommand { get; }
 
     public ICommand HideCommand { get; }
@@ -136,6 +143,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public string MonthTitle => _displayMode switch
     {
+        CalendarDisplayMode.Day => _selectedDate.ToDateTime(TimeOnly.MinValue).ToString("ddd d MMM yyyy", CultureInfo.CurrentCulture),
         CalendarDisplayMode.Year => _visibleMonth.Year.ToString(CultureInfo.CurrentCulture),
         CalendarDisplayMode.Decade => $"{GetDecadeStart(_visibleMonth.Year)} - {GetDecadeStart(_visibleMonth.Year) + 9}",
         _ => _visibleMonth.ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", CultureInfo.CurrentCulture)
@@ -145,9 +153,45 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    public Visibility OverviewVisibility => _displayMode == CalendarDisplayMode.Month
-        ? Visibility.Collapsed
-        : Visibility.Visible;
+    public Visibility OverviewVisibility => _displayMode is CalendarDisplayMode.Year or CalendarDisplayMode.Decade
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility DayViewVisibility => _displayMode == CalendarDisplayMode.Day
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public bool IsMonthView => _displayMode == CalendarDisplayMode.Month;
+
+    public bool IsDayView => _displayMode == CalendarDisplayMode.Day;
+
+    public GridLength CalendarGridRowHeight => _displayMode == CalendarDisplayMode.Day
+        ? new GridLength(0)
+        : new GridLength(264);
+
+    public DateOnly SelectedDate => _selectedDate;
+
+    public GridLength WeekdayHeaderRowHeight => _displayMode == CalendarDisplayMode.Day
+        ? new GridLength(0)
+        : new GridLength(30);
+
+    public double AgendaMaxHeight => _displayMode == CalendarDisplayMode.Day ? 360 : 104;
+
+    public string PreviousStepToolTip => _displayMode switch
+    {
+        CalendarDisplayMode.Day => "Previous day",
+        CalendarDisplayMode.Year => "Previous year",
+        CalendarDisplayMode.Decade => "Previous decade",
+        _ => "Previous month"
+    };
+
+    public string NextStepToolTip => _displayMode switch
+    {
+        CalendarDisplayMode.Day => "Next day",
+        CalendarDisplayMode.Year => "Next year",
+        CalendarDisplayMode.Decade => "Next decade",
+        _ => "Next month"
+    };
 
     public GridLength PrayerToggleColumnWidth => _prayerTimesEnabled
         ? new GridLength(PrayerToggleWidth)
@@ -246,7 +290,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _today = DateOnly.FromDateTime(DateTime.Now);
         _selectedDate = _today;
         _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_today);
+        _displayMode = CalendarDisplayMode.Day;
+        RefreshCalendar();
+    }
+
+    private void ShowMonthView()
+    {
+        _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_selectedDate);
         _displayMode = CalendarDisplayMode.Month;
+        RefreshCalendar();
+    }
+
+    private void ShowDayView()
+    {
+        _displayMode = CalendarDisplayMode.Day;
         RefreshCalendar();
     }
 
@@ -395,6 +452,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void MoveMonth(int monthOffset)
     {
+        if (_displayMode == CalendarDisplayMode.Day)
+        {
+            var dayIndex = _selectedDate.DayNumber + monthOffset;
+            if (dayIndex < DateOnly.MinValue.DayNumber || dayIndex > DateOnly.MaxValue.DayNumber)
+            {
+                return;
+            }
+
+            _selectedDate = DateOnly.FromDayNumber(dayIndex);
+            _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_selectedDate);
+            RefreshCalendar();
+            return;
+        }
+
         var months = monthOffset * (_displayMode == CalendarDisplayMode.Decade ? 120
             : _displayMode == CalendarDisplayMode.Year ? 12 : 1);
         var monthIndex = (_visibleMonth.Year - 1) * 12 + _visibleMonth.Month - 1 + months;
@@ -434,6 +505,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         _displayMode = _displayMode switch
         {
+            CalendarDisplayMode.Day => CalendarDisplayMode.Month,
             CalendarDisplayMode.Month => CalendarDisplayMode.Year,
             CalendarDisplayMode.Year => CalendarDisplayMode.Decade,
             _ => CalendarDisplayMode.Decade
@@ -495,6 +567,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(MonthTitle));
         OnPropertyChanged(nameof(MonthViewVisibility));
         OnPropertyChanged(nameof(OverviewVisibility));
+        OnPropertyChanged(nameof(DayViewVisibility));
+        OnPropertyChanged(nameof(IsMonthView));
+        OnPropertyChanged(nameof(IsDayView));
+        OnPropertyChanged(nameof(CalendarGridRowHeight));
+        OnPropertyChanged(nameof(WeekdayHeaderRowHeight));
+        OnPropertyChanged(nameof(AgendaMaxHeight));
+        OnPropertyChanged(nameof(PreviousStepToolTip));
+        OnPropertyChanged(nameof(NextStepToolTip));
         OnPropertyChanged(nameof(AgendaTitle));
         OnPropertyChanged(nameof(AgendaEmptyText));
         OnPropertyChanged(nameof(AgendaEmptyVisibility));

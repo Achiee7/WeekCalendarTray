@@ -54,6 +54,27 @@ internal static class Program
             TestMeasuredDayStripe(mainWindow);
             PopulateMainWindow(mainWindow);
 
+            mainWindow.ShowDayViewCommand.Execute(null);
+            Assert(mainWindow.IsDayView, "day toggle did not select day view");
+            Assert(mainWindow.DayViewVisibility == Visibility.Visible, "day view did not become visible");
+            Assert(mainWindow.CalendarGridRowHeight.Value == 0d, "day view retained the month grid row");
+            Assert(mainWindow.WeekdayHeaderRowHeight.Value == 0d, "day view retained the weekday header row");
+            Assert(mainWindow.PreviousStepToolTip == "Previous day", "day view kept the month navigation tooltip");
+            var dayBeforeStep = mainWindow.SelectedDate;
+            mainWindow.NextMonthCommand.Execute(null);
+            Assert(
+                mainWindow.SelectedDate == dayBeforeStep.AddDays(1),
+                "day view navigation did not advance a single day");
+            mainWindow.PreviousMonthCommand.Execute(null);
+            Assert(mainWindow.SelectedDate == dayBeforeStep, "day view navigation did not step back a single day");
+            RenderWindowContent(
+                mainWindow,
+                Path.Combine(artifactDirectory, "MainWindow-day-dark.png"));
+            mainWindow.ShowMonthViewCommand.Execute(null);
+            Assert(mainWindow.IsMonthView, "month toggle did not restore month view");
+            Assert(mainWindow.WeekdayHeaderRowHeight.Value == 30d, "month view lost the weekday header row");
+            Assert(mainWindow.PreviousStepToolTip == "Previous month", "month view kept the day navigation tooltip");
+
             AssertClose(372d, mainWindow.Width, "normal main-window width");
             ApplyTheme(light: false, acrylic: false);
             RenderWindowContent(

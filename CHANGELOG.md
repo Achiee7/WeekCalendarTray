@@ -4,7 +4,15 @@ All notable changes to Week Calendar Tray are documented here. The format follow
 
 ## [Unreleased]
 
-No entries yet.
+### Added
+
+- Compact `Month`/`Day` toggle in the calendar navigation row. `Day` hides the month grid and shows the selected date's full scrollable agenda, including each event's location.
+- Day-aware navigation: in Day view the `<` and `>` buttons step one day at a time, and their tooltips describe the active step size.
+
+### Changed
+
+- `Today` now selects today and opens Day view, so the button has a visible effect when today is already selected.
+- The month title acts as a zoom-out from Day view to the month grid, matching the existing month/year/decade behavior.
 
 ## [1.2.2] - 2026-09-11
 
