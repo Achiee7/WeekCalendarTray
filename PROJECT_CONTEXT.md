@@ -6,7 +6,8 @@ Week Calendar Tray is a .NET 8 WPF notification-area utility for Windows. It pre
 
 ## Release State
 
-- Current source release: `1.2.1`, dated 2026-09-10.
+- Current source release: `1.2.2`, dated 2026-09-11.
+- Version 1.2.2 prepares native glass before tray Show and resets/reapplies the backdrop once at dispatcher idle per opening. Desktop first-open tests passed at 20% and 75% for three openings each, without panel interaction. Opacity now ranges from 20% to 95%.
 - Version 1.2.1 addresses inactive calendar glass while event details is active. A borderless-window WM_NCACTIVATE presentation hook leaves input activation and keyboard focus untouched and is detached on disable/close. Native desktop pixel verification still depends on an accessible desktop.
 - The 1.2.0 package and local installation were verified; settings and local-event hashes and startup preference were preserved.
 - Runtime target: `win-x64`.
@@ -26,7 +27,7 @@ Generated outputs under `bin`, `obj`, and `dist` are disposable and excluded fro
 - Users can create and delete local events. Local events are stored only on the PC.
 - Synced iCal/ICS events are read-only. Their details can include time, calendar, location, organizer, description, and source URL when published by the provider.
 - Source-colored agenda accents and segmented day indicators distinguish calendars with events on the same day.
-- Appearance offers `System`, `Light`, and `Dark`; `System` is the default and follows the Windows app theme. Every mode uses the Windows accent color. Glass surface opacity defaults to 75%, ranges from 35% through 95%, and does not change text opacity or calendar/source event colors.
+- Appearance offers `System`, `Light`, and `Dark`; `System` is the default and follows the Windows app theme. Every mode uses the Windows accent color. Glass surface opacity defaults to 75%, ranges from 20% through 95%, and does not change text opacity or calendar/source event colors.
 - Settings previews theme, glass, and surface-opacity changes immediately. `Save` persists them; closing without saving restores the previous saved appearance.
 - Prayer times can be enabled in Settings and displayed in an expandable panel with a live next-prayer countdown and optional tray notifications.
 
@@ -101,7 +102,7 @@ The privacy-safe issue matrix is `docs\VIDEO_UI_REMEDIATION_STATUS_2026-09-10.md
 Product boundaries for this work:
 
 - Windows native glass means desktop backdrop, blur/tint, controlled surface opacity, and fallback behavior. It does not reproduce Apple Liquid Glass refraction exactly.
-- Surface opacity defaults to 75%, is constrained to 35%-95%, and does not fade text, icons, controls, or event content.
+- Surface opacity defaults to 75%, is constrained to 20%-95%, and does not fade text, icons, controls, or event content.
 - `System` is the default theme and follows Windows; explicit `Light` and `Dark` modes override brightness only. All three modes still use the Windows accent color.
 - Appearance changes preview immediately. `Save` commits them, while `Close` without saving restores the last saved appearance.
 - Windows accent color affects general application emphasis, not stable calendar/source colors in agenda accents or segmented day indicators.

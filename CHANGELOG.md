@@ -6,6 +6,16 @@ All notable changes to Week Calendar Tray are documented here. The format follow
 
 No entries yet.
 
+## [1.2.2] - 2026-09-11
+
+### Fixed
+
+- Initialize glass before the tray popup creates its native window and re-create the backdrop once after each opening. The calendar no longer needs prayer-panel or event interaction to refresh its initial solid fallback.
+- Extend the opacity slider and persisted/native validation range down to 20%; retain the 95% maximum and 75% default.
+- Add a desktop-composited first-open regression test through the real tray-controller path, without resizing or opening child panels. Verified three openings each at 20% and 75%.
+
+The first-open visual regression passed on the accessible Windows desktop. Sleep/resume, other display configurations, and long-term stability still require observation.
+
 ## [1.2.1] - 2026-09-10
 
 ### Fixed

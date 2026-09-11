@@ -11,7 +11,7 @@ internal static class ThemeManager
     private const string PersonalizeKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
     private const string AppsUseLightThemeValue = "AppsUseLightTheme";
     public const int DefaultAcrylicOpacityPercent = 75;
-    public const int MinAcrylicOpacityPercent = 35;
+    public const int MinAcrylicOpacityPercent = 20;
     public const int MaxAcrylicOpacityPercent = 95;
     private static bool _initialized;
     private static bool _windowClassHandlerRegistered;
@@ -170,13 +170,14 @@ internal static class ThemeManager
     {
         if (_initialized && sender is Window window)
         {
-            AcrylicWindowManager.Apply(
-                window,
-                IsAcrylicEnabled && !SystemParameters.HighContrast,
-                useDarkMode: !IsLightTheme,
-                AccentColor,
-                AcrylicOpacityPercent);
+            PrepareWindow(window);
         }
+    }
+
+    public static void PrepareWindow(Window window)
+    {
+        AcrylicWindowManager.Apply(window, IsAcrylicEnabled && !SystemParameters.HighContrast,
+            useDarkMode: !IsLightTheme, AccentColor, AcrylicOpacityPercent);
     }
 
     private static void ApplyAcrylicToOpenWindows()

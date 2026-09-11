@@ -2,7 +2,9 @@
 
 Week Calendar Tray is a lightweight Windows tray calendar with ISO week numbers, local events, read-only iCal/ICS subscriptions, and optional locally calculated prayer times. It runs beside the Windows clock and opens its own popup; it does not replace the built-in Windows calendar flyout.
 
-The current source release is **1.2.1**, dated 2026-09-10.
+The current source release is **1.2.2**, dated 2026-09-11.
+
+Version 1.2.2 prepares glass before the tray window is shown and re-creates the native backdrop once after opening. This corrects the solid first-open appearance without requiring prayer-panel or event interaction. The opacity slider now ranges from 20% to 95%, with the existing 75% default unchanged. First-open desktop pixel checks passed at 20% and 75% across three openings each.
 
 Version 1.2.1 addresses the calendar turning solid when an event-details window receives focus. Borderless glass windows retain their active backdrop presentation without taking keyboard focus from another window. The native presentation hook is removed when glass is disabled or the window closes. Windows accessibility and platform fallback behavior still apply.
 
@@ -24,7 +26,7 @@ Version 1.2.0 makes native backdrop initialization deterministic, adds a cleaner
 
 “Glass” here means Windows desktop composition with backdrop, blur/tint, controlled opacity, and a fallback. It can evoke a glass surface, but it is not an exact implementation of Apple’s refractive Liquid Glass rendering. The opacity setting affects window surfaces, not text, icons, event content, or control opacity.
 
-All three theme modes use the current Windows accent color for general application emphasis. Windows accent does not replace calendar identity colors: agenda accents and segmented day indicators continue using their stable per-source colors. Glass surface opacity defaults to 75% and can be adjusted from 35% through 95%.
+All three theme modes use the current Windows accent color for general application emphasis. Windows accent does not replace calendar identity colors: agenda accents and segmented day indicators continue using their stable per-source colors. Glass surface opacity defaults to 75% and can be adjusted from 20% through 95%.
 
 Theme, glass, and opacity changes preview immediately in Settings. `Save` persists the selected appearance; `Close` without saving restores the previously saved appearance.
 

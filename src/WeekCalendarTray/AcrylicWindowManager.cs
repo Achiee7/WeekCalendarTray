@@ -90,6 +90,8 @@ internal static class AcrylicWindowManager
         private int _opacityPercent;
         private bool _contentRenderedReapplyAvailable = true;
         private bool _postRenderApplyQueued;
+        private bool _firstFrameRefreshQueued;
+        private bool _firstFrameRefreshCompleted;
         private bool _useDarkMode;
         private HwndSource? _windowSource;
 
@@ -114,7 +116,8 @@ internal static class AcrylicWindowManager
 
             _useDarkMode = useDarkMode;
             _accentColor = accentColor;
-            _opacityPercent = Math.Clamp(opacityPercent, 35, 95);
+            _opacityPercent = Math.Clamp(opacityPercent,
+                ThemeManager.MinAcrylicOpacityPercent, ThemeManager.MaxAcrylicOpacityPercent);
             var handle = new WindowInteropHelper(_window).Handle;
             if (handle == IntPtr.Zero)
             {
@@ -172,7 +175,7 @@ internal static class AcrylicWindowManager
                         var groupActive = _window.IsActive || IsSameWindowGroup(handle, GetForegroundWindow());
                         _ = DefWindowProc(handle, WmNcActivate,
                             groupActive ? new IntPtr(1) : IntPtr.Zero,
-                            groupActive ? new IntPtr(-1) : IntPtr.Zero);
+                            IntPtr.Zero);
                     }
                 }
             }
@@ -386,6 +389,7 @@ internal static class AcrylicWindowManager
 
         private void Window_SourceInitialized(object? sender, EventArgs e)
         {
+            ApplyWindowFrame(_window);
             Apply(_useDarkMode, _accentColor, _opacityPercent);
         }
 
@@ -398,6 +402,7 @@ internal static class AcrylicWindowManager
 
             _contentRenderedReapplyAvailable = false;
             QueuePostRenderApply();
+            QueueFirstFrameRefresh();
         }
 
         private void Window_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -405,11 +410,36 @@ internal static class AcrylicWindowManager
             if (e.NewValue is true)
             {
                 QueuePostRenderApply();
+                QueueFirstFrameRefresh();
             }
             else
             {
                 _contentRenderedReapplyAvailable = true;
+                _firstFrameRefreshCompleted = false;
             }
+        }
+
+        private void QueueFirstFrameRefresh()
+        {
+            if (_disposed || _firstFrameRefreshQueued || _firstFrameRefreshCompleted || !_window.IsVisible)
+                return;
+
+            _firstFrameRefreshQueued = true;
+            _window.Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)(() =>
+            {
+                _firstFrameRefreshQueued = false;
+                if (_disposed || !_window.IsVisible || _firstFrameRefreshCompleted) return;
+                _firstFrameRefreshCompleted = true;
+                var handle = new WindowInteropHelper(_window).Handle;
+                if (_backdropApplied && handle != IntPtr.Zero)
+                {
+                    // DWM may retain its initial solid fallback when the backdrop type is unchanged.
+                    // Recreate it once per opening after WPF has presented and activation has settled.
+                    var none = DwmSystemBackdropNone;
+                    _ = DwmSetWindowAttribute(handle, DwmwaSystemBackdropType, ref none, sizeof(int));
+                }
+                Apply(_useDarkMode, _accentColor, _opacityPercent);
+            }));
         }
 
         private void QueuePostRenderApply()

@@ -11,7 +11,7 @@ namespace WeekCalendarTray.UiTests;
 
 internal static class SettingsAppearanceTests
 {
-    private const int PreviewOpacityPercent = 65;
+    private const int PreviewOpacityPercent = 20;
 
     public static void Run(CalendarSyncCoordinator coordinator, string artifactDirectory)
     {

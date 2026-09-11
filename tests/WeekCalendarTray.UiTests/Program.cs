@@ -46,6 +46,8 @@ internal static class Program
             WaitForThemeInitialization();
             TestCalendarDayColorsAndToggles();
             ThemeRegressionTests.Run();
+            if (args.Contains("--native-first-open", StringComparer.OrdinalIgnoreCase))
+                NativeAcrylicVisualTests.RunFirstOpen(artifactDirectory);
 
             using var coordinator = new CalendarSyncCoordinator();
             mainWindow = new MainWindow(coordinator);

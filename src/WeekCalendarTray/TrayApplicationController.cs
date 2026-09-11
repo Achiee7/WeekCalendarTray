@@ -128,6 +128,7 @@ internal sealed class TrayApplicationController : IDisposable
         }
 
         PopupPositioner.PlaceNearTaskbar(_popup);
+        ThemeManager.PrepareWindow(_popup);
         _popup.Show();
         _popup.Activate();
     }

@@ -65,6 +65,56 @@ internal static class NativeAcrylicVisualTests
         }
     }
 
+    public static void RunFirstOpen(string artifactDirectory)
+    {
+        if (!CanVerifyNativeBackdrop()) return;
+        var previousEnabled = ThemeManager.IsAcrylicEnabled;
+        var previousOpacity = ThemeManager.AcrylicOpacityPercent;
+        var previousTheme = ThemeManager.ThemePreference;
+        var backdrop = new SyntheticBackdropWindow(SystemParameters.WorkArea);
+        try
+        {
+            backdrop.UsePaletteA();
+            backdrop.Show();
+            FlushDesktop(backdrop);
+            if (!CanCaptureSyntheticBackdrop(backdrop, out var status))
+            {
+                Console.WriteLine($"First-open desktop pixels skipped: {status}");
+                return;
+            }
+
+            foreach (var opacity in new[] { 20, 75 })
+            {
+                ThemeManager.SetAppearanceOptions(true, opacity, AppThemePreference.Dark);
+                using var controller = new TrayApplicationController();
+                for (var opening = 0; opening < 3; opening++)
+                {
+                    InvokePrivate(controller, "ShowPopup", false);
+                    var popup = GetPrivateField<MainWindow>(controller, "_popup")!;
+                    SetPrivateField(popup, "_keepOpenForChildWindow", true);
+                    FlushDesktop(popup);
+                    var registration = GetAcrylicRegistration(popup);
+                    var deadline = DateTime.UtcNow.AddSeconds(2);
+                    while (!GetPrivateFieldValue<bool>(registration, "_firstFrameRefreshCompleted")
+                        && DateTime.UtcNow < deadline)
+                        FlushDesktop(popup);
+                    Assert(GetPrivateFieldValue<bool>(registration, "_firstFrameRefreshCompleted"),
+                        "first-frame refresh did not finish before the first-open capture");
+                    using var pair = CaptureResponsivePair(popup, backdrop, artifactDirectory,
+                        $"MainWindow-first-open-{opacity}-{opening}");
+                    Console.WriteLine($"First-open acrylic response at {opacity}% (open {opening + 1}): {pair.Difference:0.##}");
+                    Assert(pair.Difference >= 2d, "first-open calendar stayed opaque before any panel interaction");
+                    popup.Hide();
+                }
+            }
+        }
+        finally
+        {
+            backdrop.Close();
+            ThemeManager.SetAppearanceOptions(previousEnabled, previousOpacity, previousTheme);
+        }
+    }
+
     public static void Run(MainWindow window, string artifactDirectory)
     {
         if (!CanVerifyNativeBackdrop())

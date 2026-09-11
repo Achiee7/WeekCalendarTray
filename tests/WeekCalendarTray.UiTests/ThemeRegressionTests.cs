@@ -17,6 +17,7 @@ internal static class ThemeRegressionTests
                 "acrylic opacity did not clamp to its minimum");
             Program.Assert(!ThemeManager.IsLightTheme, "Dark preference did not force the dark theme");
             var lowAlpha = ResourceBrush("GroupSurfaceBrush").Color.A;
+            Program.Assert(ThemeManager.AcrylicOpacityPercent == 20, "minimum opacity must be 20 percent");
 
             ThemeManager.SetAppearanceOptions(true, int.MaxValue, AppThemePreference.Light);
             Program.Assert(ThemeManager.AcrylicOpacityPercent == ThemeManager.MaxAcrylicOpacityPercent,
@@ -37,7 +38,7 @@ internal static class ThemeRegressionTests
                     await store.SaveAsync(new SyncSettings
                     {
                         AcrylicEnabled = true,
-                        AcrylicOpacityPercent = 63,
+                        AcrylicOpacityPercent = 20,
                         ThemePreference = nameof(AppThemePreference.Dark)
                     });
                     return await store.LoadAsync();
@@ -45,7 +46,7 @@ internal static class ThemeRegressionTests
                 .GetAwaiter()
                 .GetResult();
             Program.Assert(restored.AcrylicEnabled, "acrylic enabled state did not persist");
-            Program.Assert(restored.AcrylicOpacityPercent == 63, "acrylic opacity did not persist");
+            Program.Assert(restored.AcrylicOpacityPercent == 20, "20 percent acrylic opacity did not persist");
             Program.Assert(restored.ThemePreference == nameof(AppThemePreference.Dark),
                 "theme preference did not persist");
 

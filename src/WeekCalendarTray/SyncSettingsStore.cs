@@ -13,7 +13,8 @@ internal sealed class SyncSettingsStore
             .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
         settings.SyncPastDays = Math.Clamp(settings.SyncPastDays, 0, 3660);
         settings.SyncFutureDays = Math.Clamp(settings.SyncFutureDays, 1, 3660);
-        settings.AcrylicOpacityPercent = Math.Clamp(settings.AcrylicOpacityPercent, 35, 95);
+        settings.AcrylicOpacityPercent = Math.Clamp(settings.AcrylicOpacityPercent,
+            ThemeManager.MinAcrylicOpacityPercent, ThemeManager.MaxAcrylicOpacityPercent);
         settings.ThemePreference = AppThemePreferences.Parse(settings.ThemePreference).ToString();
         if (!double.IsFinite(settings.PrayerLatitude) || Math.Abs(settings.PrayerLatitude) > 90
             || !double.IsFinite(settings.PrayerLongitude) || Math.Abs(settings.PrayerLongitude) > 180)

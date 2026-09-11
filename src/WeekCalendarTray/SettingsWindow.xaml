@@ -377,7 +377,7 @@
                                     Grid.Row="1"
                                     Grid.ColumnSpan="2"
                                     Margin="0,4,0,0"
-                                    Minimum="35"
+                                    Minimum="20"
                                     Maximum="95"
                                     TickFrequency="5"
                                     IsSnapToTickEnabled="True"
