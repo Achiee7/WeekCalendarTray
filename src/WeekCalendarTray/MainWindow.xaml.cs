@@ -403,14 +403,49 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _persistedPopupHeight = Height;
     }
 
+    private void ResizeTop_DragDelta(object sender, Primitives.DragDeltaEventArgs e) =>
+        ResizeFromTopLeft(0d, e.VerticalChange);
+
+    private void ResizeLeft_DragDelta(object sender, Primitives.DragDeltaEventArgs e) =>
+        ResizeFromTopLeft(e.HorizontalChange, 0d);
+
+    private void ResizeTopLeft_DragDelta(object sender, Primitives.DragDeltaEventArgs e) =>
+        ResizeFromTopLeft(e.HorizontalChange, e.VerticalChange);
+
     /// <summary>
-    /// CanResize also enables the maximize gesture on the top edge. Nothing downstream
-    /// models a maximized tray popup, so snap back to a normal floating window.
+    /// Resizes against a fixed bottom-right corner, which is the edge the popup is
+    /// anchored to. Enabling the OS sizing frame instead would hand the window a 7px
+    /// non-client border that Windows paints over the borderless chrome.
     /// </summary>
-    private void Window_StateChanged(object sender, EventArgs e)
+    private void ResizeFromTopLeft(double horizontalChange, double verticalChange)
     {
         if (_closed) return;
-        if (WindowState != WindowState.Normal) WindowState = WindowState.Normal;
+
+        var workArea = PopupPositioner.GetWorkArea(this);
+        var currentWidth = double.IsFinite(Width) ? Width : ActualWidth;
+        var currentHeight = double.IsFinite(Height) ? Height : ActualHeight;
+        if (!double.IsFinite(currentWidth) || !double.IsFinite(currentHeight)) return;
+
+        if (horizontalChange != 0d)
+        {
+            // Cap so the left edge cannot cross the work area; the right edge is fixed.
+            var widthLimit = Math.Min(
+                PopupSize.MaxWidth + PrayerChromeWidth,
+                Math.Max(MinWidth, Left + currentWidth - workArea.Left - 8d));
+            var newWidth = Math.Clamp(currentWidth - horizontalChange, MinWidth, widthLimit);
+            Left += currentWidth - newWidth;
+            Width = newWidth;
+        }
+
+        if (verticalChange != 0d)
+        {
+            var heightLimit = Math.Min(
+                PopupSize.MaxHeight,
+                Math.Max(MinHeight, Top + currentHeight - workArea.Top - 8d));
+            var newHeight = Math.Clamp(currentHeight - verticalChange, MinHeight, heightLimit);
+            Top += currentHeight - newHeight;
+            Height = newHeight;
+        }
     }
 
     private void Window_SizeChanged(object sender, SizeChangedEventArgs e)

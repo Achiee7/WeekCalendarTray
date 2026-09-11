@@ -11,9 +11,8 @@
         Deactivated="Window_Deactivated"
         KeyDown="Window_KeyDown"
         PreviewMouseDown="Window_PreviewMouseDown"
-        ResizeMode="CanResize"
+        ResizeMode="NoResize"
         SizeChanged="Window_SizeChanged"
-        StateChanged="Window_StateChanged"
         ShowInTaskbar="False"
         SizeToContent="Manual"
         Topmost="True"
@@ -84,6 +83,18 @@
                     <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
                 </DataTrigger>
             </Style.Triggers>
+        </Style>
+
+        <!-- Invisible but hit-testable drag strips. The popup keeps WindowStyle="None"
+             with no OS sizing frame, so resizing is done in WPF instead. -->
+        <Style x:Key="ResizeGripStyle" TargetType="Thumb">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Rectangle Fill="Transparent" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style x:Key="CalendarTitleButtonStyle" TargetType="Button">
@@ -753,6 +764,36 @@
                 </Grid>
             </Grid>
         </Grid>
+
+        <!-- The popup is anchored to the taskbar corner, so it grows up and to the
+             left. Only those edges get grips; the anchored edges stay put. -->
+        <Thumb Grid.Column="0"
+               Grid.ColumnSpan="3"
+               Height="6"
+               Margin="6,0,0,0"
+               HorizontalAlignment="Stretch"
+               VerticalAlignment="Top"
+               Cursor="SizeNS"
+               DragDelta="ResizeTop_DragDelta"
+               Style="{StaticResource ResizeGripStyle}" />
+        <Thumb Grid.Column="0"
+               Grid.ColumnSpan="3"
+               Width="6"
+               Margin="0,6,0,0"
+               HorizontalAlignment="Left"
+               VerticalAlignment="Stretch"
+               Cursor="SizeWE"
+               DragDelta="ResizeLeft_DragDelta"
+               Style="{StaticResource ResizeGripStyle}" />
+        <Thumb Grid.Column="0"
+               Grid.ColumnSpan="3"
+               Width="6"
+               Height="6"
+               HorizontalAlignment="Left"
+               VerticalAlignment="Top"
+               Cursor="SizeNWSE"
+               DragDelta="ResizeTopLeft_DragDelta"
+               Style="{StaticResource ResizeGripStyle}" />
         </Grid>
     </Border>
 </Window>

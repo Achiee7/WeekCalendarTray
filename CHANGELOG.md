@@ -16,7 +16,7 @@ All notable changes to Week Calendar Tray are documented here. The format follow
 - The `Day` button becomes `Today` once Day view is active, so a second press jumps to today. This replaces the separate `Today` button.
 - Day view drops its separate title row, which only repeated the date already shown in the header. Month view keeps both rows, since its title names the browsed month and is also the zoom-out to Year/Decade.
 - The month title acts as a zoom-out from Day view to the month grid, matching the existing month/year/decade behavior.
-- The popup is resizable by dragging its edges, and the chosen size persists in `sync-settings.json` as `PopupWidth`/`PopupHeight`. Width is stored as the calendar body width, so the prayer toggle and panel still widen the window on top of it. The restored size is clamped to the current display's work area, since settings roam between machines.
+- The popup is resizable by dragging its top or left edge, or the top-left corner, and the chosen size persists in `sync-settings.json` as `PopupWidth`/`PopupHeight`. It grows up and to the left, away from the taskbar corner it is anchored to. Resizing is handled in WPF rather than by the OS sizing frame, which would add a non-client border around the borderless chrome. Width is stored as the calendar body width, so the prayer toggle and panel still widen the window on top of it. The restored size is clamped to the current display's work area, since settings roam between machines.
 - The agenda no longer has a fixed `MaxHeight`; it fills whatever vertical space the window has. Without this, dragging the popup taller only added empty surface below a capped list.
 
 ### Fixed
