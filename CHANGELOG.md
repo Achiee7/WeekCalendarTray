@@ -11,7 +11,8 @@ All notable changes to Week Calendar Tray are documented here. The format follow
 
 ### Changed
 
-- Moved `<` and `>` into a bottom navigation strip beside the sync status, freeing the header in both views.
+- Moved `<`, `>`, and `+` into a bottom action strip beside the sync status, freeing the header in both views.
+- Dropped the "Agenda for ..." heading. The header already names the selected day, so the heading repeated it on every view; the agenda now follows the divider directly and gains that space.
 - The `Day` button becomes `Today` once Day view is active, so a second press jumps to today. This replaces the separate `Today` button.
 - Day view drops its separate title row, which only repeated the date already shown in the header. Month view keeps both rows, since its title names the browsed month and is also the zoom-out to Year/Decade.
 - The month title acts as a zoom-out from Day view to the month grid, matching the existing month/year/decade behavior.

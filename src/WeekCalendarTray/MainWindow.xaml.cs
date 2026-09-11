@@ -198,7 +198,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? "Jump to today"
         : "Show the full agenda for the selected day";
 
-    public double AgendaMaxHeight => _displayMode == CalendarDisplayMode.Day ? 390 : 104;
+    public double AgendaMaxHeight => _displayMode == CalendarDisplayMode.Day ? 424 : 138;
 
     public string PreviousStepToolTip => _displayMode switch
     {
@@ -238,7 +238,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? "Hide prayer times"
         : "Show prayer times";
 
-    public string AgendaTitle => $"Agenda for {_selectedDate.ToDateTime(TimeOnly.MinValue).ToString("ddd d MMM", CultureInfo.CurrentCulture)}";
 
     public string AgendaEmptyText => SelectedDayEvents.Count == 0
         ? "No events found for this day."
@@ -602,7 +601,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(AgendaMaxHeight));
         OnPropertyChanged(nameof(PreviousStepToolTip));
         OnPropertyChanged(nameof(NextStepToolTip));
-        OnPropertyChanged(nameof(AgendaTitle));
         OnPropertyChanged(nameof(AgendaEmptyText));
         OnPropertyChanged(nameof(AgendaEmptyVisibility));
         RefreshPrayerPanel();

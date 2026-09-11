@@ -636,34 +636,14 @@
                     Margin="0,6,0,0"
                     Background="{DynamicResource DividerBrush}" />
 
-            <Grid Grid.Row="5" Margin="0,14,0,0">
+            <Grid Grid.Row="5" Margin="0,12,0,0">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="34" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Foreground="{DynamicResource PrimaryTextBrush}"
-                               FontFamily="Segoe UI"
-                               FontSize="13"
-                               FontWeight="SemiBold"
-                               Text="{Binding AgendaTitle}" />
-                    <Button Grid.Column="1"
-                            Width="30"
-                            Height="28"
-                            Command="{Binding AddEventCommand}"
-                            Content="+"
-                            Style="{StaticResource TrayButtonStyle}"
-                            ToolTip="Add event" />
-                </Grid>
-
-                <ScrollViewer Grid.Row="1"
-                              Margin="0,6,0,0"
+                <ScrollViewer Grid.Row="0"
+                              Margin="0,0,0,0"
                               MaxHeight="{Binding AgendaMaxHeight}"
                               VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding SelectedDayEvents}">
@@ -724,15 +704,15 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
-                <TextBlock Grid.Row="1"
-                           Margin="0,6,0,0"
+                <TextBlock Grid.Row="0"
+                           VerticalAlignment="Top"
                            Foreground="{DynamicResource MutedTextBrush}"
                            FontFamily="Segoe UI"
                            FontSize="12"
                            Text="{Binding AgendaEmptyText}"
                            TextWrapping="Wrap"
                            Visibility="{Binding AgendaEmptyVisibility}" />
-                <Grid Grid.Row="2" Margin="0,6,0,0">
+                <Grid Grid.Row="1" Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="8" />
@@ -747,6 +727,13 @@
                     <StackPanel Grid.Column="2"
                                 VerticalAlignment="Center"
                                 Orientation="Horizontal">
+                        <Button Width="30"
+                                Height="26"
+                                Margin="0,0,10,0"
+                                Command="{Binding AddEventCommand}"
+                                Content="+"
+                                Style="{StaticResource TrayButtonStyle}"
+                                ToolTip="Add event" />
                         <Button Width="34"
                                 Height="26"
                                 Command="{Binding PreviousMonthCommand}"
