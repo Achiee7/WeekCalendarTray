@@ -1002,9 +1002,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    private Task RunUiOperationAsync(Func<Task> action) =>
-        AppDiagnostics.RunAsync("Calendar operation", action, () =>
+    private Task RunUiOperationAsync(Func<Task> action)
+    {
+        // The window is constructed before the dispatcher loop runs, so at that point
+        // there is no DispatcherSynchronizationContext to capture. Continuations after
+        // the first await would then resume on a thread-pool thread and throw on any
+        // UI access. Queue the operation so it starts inside a dispatcher callback,
+        // where WPF installs that context and awaits resume on the UI thread.
+        if (SynchronizationContext.Current is not DispatcherSynchronizationContext)
+        {
+            return Dispatcher.InvokeAsync(() => RunUiOperationAsync(action)).Task.Unwrap();
+        }
+
+        return AppDiagnostics.RunAsync("Calendar operation", action, () =>
         {
             if (!_closed) SyncStatusText = "Could not complete this operation. Please try again.";
         });
+    }
 }

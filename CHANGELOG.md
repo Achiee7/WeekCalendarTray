@@ -16,6 +16,10 @@ All notable changes to Week Calendar Tray are documented here. The format follow
 - Day view drops its separate title row, which only repeated the date already shown in the header. Month view keeps both rows, since its title names the browsed month and is also the zoom-out to Year/Decade.
 - The month title acts as a zoom-out from Day view to the month grid, matching the existing month/year/decade behavior.
 
+### Fixed
+
+- Run startup UI operations on the dispatcher. The window is built before the dispatcher loop starts, so there was no `DispatcherSynchronizationContext` to capture; continuations after the first `await` resumed on a thread-pool thread and threw `InvalidOperationException` on any UI access. This logged a "Calendar operation" failure on every launch through `LoadPrayerSettingsAsync` and left the same latent race in the cache refresh started from `RefreshCalendar`.
+
 ## [1.2.2] - 2026-09-11
 
 ### Fixed
