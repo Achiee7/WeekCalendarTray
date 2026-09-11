@@ -72,6 +72,9 @@ internal static class PopupPositioner
 
     private static double Clamp(double value, double min, double max)
     {
+        // A window wider or taller than the work area inverts the bounds. Prefer the
+        // near edge in that case; clamping to max would push the window off-screen.
+        if (max < min) return min;
         return Math.Min(Math.Max(value, min), max);
     }
 }

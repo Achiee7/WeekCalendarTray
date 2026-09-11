@@ -21,9 +21,17 @@ internal enum CalendarDisplayMode
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
-    private const double BaseWindowWidth = 372d;
     private const double PrayerToggleWidth = 28d;
     private const double PrayerPanelWidth = 226d;
+
+    // Calendar body width, excluding prayer chrome. Seeded from settings, updated as
+    // the user drags, and persisted. The prayer panel widths are added on top of it.
+    private double _baseWindowWidth = PopupSize.DefaultWidth;
+    private double _appliedPrayerChromeWidth;
+    private double _persistedPopupWidth = PopupSize.DefaultWidth;
+    private double _persistedPopupHeight = PopupSize.DefaultHeight;
+    private bool _applyingLayoutWidth;
+    private DispatcherTimer? _popupSizeSaveTimer;
 
     private readonly CalendarSyncCoordinator _syncCoordinator;
     private readonly PrayerTimesCalculator _prayerTimesCalculator = new();
@@ -92,6 +100,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 CloseDayPreview();
                 CloseTransientWindows();
+                FlushPendingPopupSizeSave();
             }
             if (IsVisible && _prayerTimesEnabled)
             {
@@ -198,7 +207,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? "Jump to today"
         : "Show the full agenda for the selected day";
 
-    public double AgendaMaxHeight => _displayMode == CalendarDisplayMode.Day ? 424 : 138;
 
     public string PreviousStepToolTip => _displayMode switch
     {
@@ -333,6 +341,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var settings = await _syncCoordinator.SettingsStore.LoadAsync();
         if (_closed) return;
+        ApplyPersistedPopupSize(settings);
         _prayerTimesEnabled = settings.PrayerTimesEnabled;
         _prayerLocation = new PrayerTimesLocation(
             settings.PrayerLocationName,
@@ -364,17 +373,153 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshPrayerPanel();
     }
 
+    /// <summary>
+    /// Restores the persisted popup size, clamped to the work area of the display the
+    /// popup is on. Settings roam, so a size saved on a larger monitor must not place
+    /// the window off-screen here.
+    /// </summary>
+    private void ApplyPersistedPopupSize(SyncSettings settings)
+    {
+        var workArea = PopupPositioner.GetWorkArea(this);
+        var maxWidth = Math.Max(MinWidth, workArea.Width - 24d);
+        var maxHeight = Math.Max(MinHeight, workArea.Height - 24d);
+
+        _baseWindowWidth = Math.Clamp(
+            PopupSize.NormalizeWidth(settings.PopupWidth),
+            PopupSize.MinWidth,
+            Math.Max(PopupSize.MinWidth, maxWidth - PrayerChromeWidth));
+
+        _applyingLayoutWidth = true;
+        try
+        {
+            Height = Math.Clamp(PopupSize.NormalizeHeight(settings.PopupHeight), MinHeight, maxHeight);
+        }
+        finally
+        {
+            _applyingLayoutWidth = false;
+        }
+
+        _persistedPopupWidth = _baseWindowWidth;
+        _persistedPopupHeight = Height;
+    }
+
+    /// <summary>
+    /// CanResize also enables the maximize gesture on the top edge. Nothing downstream
+    /// models a maximized tray popup, so snap back to a normal floating window.
+    /// </summary>
+    private void Window_StateChanged(object sender, EventArgs e)
+    {
+        if (_closed) return;
+        if (WindowState != WindowState.Normal) WindowState = WindowState.Normal;
+    }
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_closed || _applyingLayoutWidth) return;
+
+        // A drag changes the whole window; the prayer chrome keeps its natural width,
+        // so everything above it belongs to the calendar body.
+        if (e.WidthChanged)
+        {
+            var body = ActualWidth - PrayerChromeWidth;
+            if (double.IsFinite(body) && body > 0d) _baseWindowWidth = body;
+        }
+
+        QueuePopupSizeSave();
+    }
+
+    /// <summary>
+    /// WPF raises SizeChanged continuously while dragging, and each save rewrites the
+    /// whole settings document, so coalesce onto one write after the drag settles.
+    /// </summary>
+    private void QueuePopupSizeSave()
+    {
+        _popupSizeSaveTimer ??= CreatePopupSizeSaveTimer();
+        _popupSizeSaveTimer.Stop();
+        _popupSizeSaveTimer.Start();
+    }
+
+    /// <summary>
+    /// Writes a pending size immediately. The popup hides on deactivation, which is the
+    /// common way a drag ends, and the debounce timer would otherwise still be pending.
+    /// </summary>
+    private void FlushPendingPopupSizeSave()
+    {
+        if (_popupSizeSaveTimer is not { IsEnabled: true }) return;
+        _popupSizeSaveTimer.Stop();
+        _ = RunUiOperationAsync(SavePopupSizeAsync);
+    }
+
+    private DispatcherTimer CreatePopupSizeSaveTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            _ = RunUiOperationAsync(SavePopupSizeAsync);
+        };
+        return timer;
+    }
+
+    private async Task SavePopupSizeAsync()
+    {
+        if (_closed) return;
+
+        var width = _baseWindowWidth;
+        var height = Height;
+        if (!double.IsFinite(width) || width <= 0d) width = ActualWidth - PrayerChromeWidth;
+        if (!double.IsFinite(height) || height <= 0d) height = ActualHeight;
+        if (!double.IsFinite(width) || !double.IsFinite(height)) return;
+
+        width = PopupSize.NormalizeWidth(width);
+        height = PopupSize.NormalizeHeight(height);
+        if (NearlyEquals(width, _persistedPopupWidth) && NearlyEquals(height, _persistedPopupHeight)) return;
+
+        // Re-read before writing: Settings is the other writer of this document, and a
+        // stale copy here would discard whatever it just saved.
+        var settings = await _syncCoordinator.SettingsStore.LoadAsync();
+        if (_closed) return;
+        settings.PopupWidth = width;
+        settings.PopupHeight = height;
+        await _syncCoordinator.SettingsStore.SaveAsync(settings);
+
+        _persistedPopupWidth = width;
+        _persistedPopupHeight = height;
+
+        // Deliberately no NotifySettingsChanged: it would reload prayer settings, which
+        // re-runs UpdatePrayerLayout and feeds another resize back into this path.
+    }
+
+    private static bool NearlyEquals(double left, double right) => Math.Abs(left - right) < 0.5d;
+
+    private double PrayerChromeWidth =>
+        (_prayerTimesEnabled ? PrayerToggleWidth : 0)
+        + (_prayerTimesEnabled && _prayerPanelExpanded ? PrayerPanelWidth : 0);
+
     private void UpdatePrayerLayout(bool reposition)
     {
-        var oldWidth = Width;
-        Width = BaseWindowWidth
-            + (_prayerTimesEnabled ? PrayerToggleWidth : 0)
-            + (_prayerTimesEnabled && _prayerPanelExpanded ? PrayerPanelWidth : 0);
+        // Measure the shift from the prayer chrome alone. Diffing total width would
+        // also absorb any width the user dragged to, sliding the popup sideways.
+        var oldChrome = _appliedPrayerChromeWidth;
+        var newChrome = PrayerChromeWidth;
+
+        _applyingLayoutWidth = true;
+        try
+        {
+            Width = _baseWindowWidth + newChrome;
+        }
+        finally
+        {
+            _applyingLayoutWidth = false;
+        }
+
+        _appliedPrayerChromeWidth = newChrome;
 
         if (reposition)
         {
-            var delta = Width - oldWidth;
-            Left = Clamp(Left - delta, SystemParameters.WorkArea.Left + 8, SystemParameters.WorkArea.Right - Width - 8);
+            var workArea = PopupPositioner.GetWorkArea(this);
+            var delta = newChrome - oldChrome;
+            Left = Clamp(Left - delta, workArea.Left + 8, workArea.Right - Width - 8);
         }
 
         OnPropertyChanged(nameof(PrayerToggleColumnWidth));
@@ -598,7 +743,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(NavigationTitleVisibility));
         OnPropertyChanged(nameof(DayButtonContent));
         OnPropertyChanged(nameof(DayButtonToolTip));
-        OnPropertyChanged(nameof(AgendaMaxHeight));
         OnPropertyChanged(nameof(PreviousStepToolTip));
         OnPropertyChanged(nameof(NextStepToolTip));
         OnPropertyChanged(nameof(AgendaEmptyText));

@@ -4,12 +4,16 @@
         Title="Week Calendar"
         Width="372"
         Height="560"
+        MinWidth="372"
+        MinHeight="470"
         AllowsTransparency="False"
         Background="Transparent"
         Deactivated="Window_Deactivated"
         KeyDown="Window_KeyDown"
         PreviewMouseDown="Window_PreviewMouseDown"
-        ResizeMode="NoResize"
+        ResizeMode="CanResize"
+        SizeChanged="Window_SizeChanged"
+        StateChanged="Window_StateChanged"
         ShowInTaskbar="False"
         SizeToContent="Manual"
         Topmost="True"
@@ -643,8 +647,6 @@
                 </Grid.RowDefinitions>
 
                 <ScrollViewer Grid.Row="0"
-                              Margin="0,0,0,0"
-                              MaxHeight="{Binding AgendaMaxHeight}"
                               VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding SelectedDayEvents}">
                         <ItemsControl.ItemTemplate>

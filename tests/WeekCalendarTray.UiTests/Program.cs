@@ -92,6 +92,7 @@ internal static class Program
             Assert(mainWindow.PreviousStepToolTip == "Previous month", "month view kept the day navigation tooltip");
 
             AssertClose(372d, mainWindow.Width, "normal main-window width");
+            TestPopupResizePersistence(mainWindow);
             ApplyTheme(light: false, acrylic: false);
             RenderWindowContent(
                 mainWindow,
@@ -105,10 +106,16 @@ internal static class Program
                     "Synthetic location with a deliberately long display name for layout verification",
                     51.8936d,
                     5.0913d));
+            var widthBeforePrayerPanel = mainWindow.Width;
             mainWindow.TogglePrayerPanelCommand.Execute(null);
             SetPrivateField(mainWindow, "_prayerCountdownText", "MAGHRIB 00:00:00");
             RaisePropertyChanged(mainWindow, "PrayerCountdownText");
-            AssertClose(626d, mainWindow.Width, "expanded main-window width");
+            // Assert the prayer chrome as a delta, not an absolute: the base width is
+            // user-resizable now, so a fixed 626 would only hold at the default size.
+            AssertClose(
+                widthBeforePrayerPanel + 28d + 226d,
+                mainWindow.Width,
+                "prayer panel width delta");
             ApplyTheme(light: true, acrylic: true);
             RenderWindowContent(
                 mainWindow,
@@ -160,6 +167,52 @@ internal static class Program
             application.Shutdown();
             TryDeleteDirectory(testDataDirectory);
         }
+    }
+
+    private static void TestPopupResizePersistence(MainWindow mainWindow)
+    {
+        // Missing (0), corrupt, and out-of-range persisted values must fall back or clamp
+        // rather than collapsing the popup. A 1.2.2 settings file has no size at all.
+        AssertClose(PopupSize.DefaultWidth, PopupSize.NormalizeWidth(0d), "absent width falls back");
+        AssertClose(PopupSize.DefaultHeight, PopupSize.NormalizeHeight(0d), "absent height falls back");
+        AssertClose(PopupSize.DefaultWidth, PopupSize.NormalizeWidth(double.NaN), "NaN width falls back");
+        AssertClose(
+            PopupSize.DefaultHeight,
+            PopupSize.NormalizeHeight(double.PositiveInfinity),
+            "infinite height falls back");
+        AssertClose(PopupSize.MinWidth, PopupSize.NormalizeWidth(10d), "narrow width clamps up");
+        AssertClose(PopupSize.MaxHeight, PopupSize.NormalizeHeight(99999d), "tall height clamps down");
+
+        // A user-dragged width must survive a prayer-panel toggle. UpdatePrayerLayout
+        // used to reassign Width from a constant, silently discarding the drag.
+        var restoreBaseWidth = GetPrivateDouble(mainWindow, "_baseWindowWidth");
+        SetPrivateField(mainWindow, "_baseWindowWidth", 520d);
+        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
+        AssertClose(520d, mainWindow.Width, "dragged width applied");
+
+        SetPrivateField(mainWindow, "_prayerTimesEnabled", true);
+        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
+        AssertClose(520d + 28d, mainWindow.Width, "dragged width kept when prayer chrome appears");
+        SetPrivateField(mainWindow, "_prayerTimesEnabled", false);
+        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
+        AssertClose(520d, mainWindow.Width, "dragged width kept when prayer chrome is removed");
+
+        SetPrivateField(mainWindow, "_baseWindowWidth", restoreBaseWidth);
+        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
+        AssertClose(restoreBaseWidth, mainWindow.Width, "base width restored for later checks");
+
+        // Round-trip through the real store, so the isolated harness settings file
+        // proves load-side normalization runs on what save-side wrote.
+        var store = new SyncSettingsStore();
+        var settings = store.LoadAsync().GetAwaiter().GetResult();
+        settings.PopupWidth = 640d;
+        settings.PopupHeight = 720d;
+        store.SaveAsync(settings).GetAwaiter().GetResult();
+
+        var reloaded = store.LoadAsync().GetAwaiter().GetResult();
+        AssertClose(640d, reloaded.PopupWidth, "persisted popup width round-trip");
+        AssertClose(720d, reloaded.PopupHeight, "persisted popup height round-trip");
+        Assert(reloaded.Subscriptions is not null, "size save dropped the subscription list");
     }
 
     private static void TestCalendarDayColorsAndToggles()
@@ -619,6 +672,13 @@ internal static class Program
         var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingFieldException(target.GetType().FullName, name);
         field.SetValue(target, value);
+    }
+
+    private static double GetPrivateDouble(object target, string name)
+    {
+        var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException(target.GetType().FullName, name);
+        return (double)field.GetValue(target)!;
     }
 
     internal static T? GetPrivateField<T>(object target, string name)

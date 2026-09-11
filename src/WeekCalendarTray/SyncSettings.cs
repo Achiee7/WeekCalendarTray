@@ -47,4 +47,39 @@ internal sealed class SyncSettings
     public double PrayerLatitude { get; set; } = 51.8936d;
 
     public double PrayerLongitude { get; set; } = 5.0913d;
+
+    // Calendar body width, excluding the prayer toggle and panel chrome.
+    public double PopupWidth { get; set; } = PopupSize.DefaultWidth;
+
+    public double PopupHeight { get; set; } = PopupSize.DefaultHeight;
+}
+
+/// <summary>
+/// Bounds for the user-resizable tray popup. Kept next to the settings model so the
+/// persisted range, the window, and the store all clamp against the same numbers.
+/// </summary>
+internal static class PopupSize
+{
+    public const double DefaultWidth = 372d;
+    public const double DefaultHeight = 560d;
+
+    // The month grid lays out seven day columns plus the week column against the
+    // default width, so the popup may grow but never narrow past it.
+    public const double MinWidth = 372d;
+    public const double MaxWidth = 1400d;
+
+    // Header, month grid, divider, and the bottom action strip still have to fit.
+    public const double MinHeight = 470d;
+    public const double MaxHeight = 1800d;
+
+    /// <summary>
+    /// Returns a finite, in-range size, falling back to the default when a persisted
+    /// value is missing (deserializes to 0), corrupt, or not finite.
+    /// </summary>
+    public static double NormalizeWidth(double value) => Normalize(value, DefaultWidth, MinWidth, MaxWidth);
+
+    public static double NormalizeHeight(double value) => Normalize(value, DefaultHeight, MinHeight, MaxHeight);
+
+    private static double Normalize(double value, double fallback, double min, double max) =>
+        !double.IsFinite(value) || value <= 0d ? fallback : Math.Clamp(value, min, max);
 }

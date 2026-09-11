@@ -16,9 +16,13 @@ All notable changes to Week Calendar Tray are documented here. The format follow
 - The `Day` button becomes `Today` once Day view is active, so a second press jumps to today. This replaces the separate `Today` button.
 - Day view drops its separate title row, which only repeated the date already shown in the header. Month view keeps both rows, since its title names the browsed month and is also the zoom-out to Year/Decade.
 - The month title acts as a zoom-out from Day view to the month grid, matching the existing month/year/decade behavior.
+- The popup is resizable by dragging its edges, and the chosen size persists in `sync-settings.json` as `PopupWidth`/`PopupHeight`. Width is stored as the calendar body width, so the prayer toggle and panel still widen the window on top of it. The restored size is clamped to the current display's work area, since settings roam between machines.
+- The agenda no longer has a fixed `MaxHeight`; it fills whatever vertical space the window has. Without this, dragging the popup taller only added empty surface below a capped list.
 
 ### Fixed
 
+- Guard the popup placement clamp against a window larger than the work area. The bounds inverted, and `Math.Min(Math.Max(...))` then returned the far edge, placing the popup off-screen. Unreachable while the size was fixed; reachable once it is user-controlled.
+- Base the prayer-panel reposition on the change in panel chrome rather than the change in total window width, so a user-chosen width no longer slides the popup sideways when the panel toggles. The reposition also clamps against the display the popup is on instead of the primary monitor.
 - Run startup UI operations on the dispatcher. The window is built before the dispatcher loop starts, so there was no `DispatcherSynchronizationContext` to capture; continuations after the first `await` resumed on a thread-pool thread and threw `InvalidOperationException` on any UI access. This logged a "Calendar operation" failure on every launch through `LoadPrayerSettingsAsync` and left the same latent race in the cache refresh started from `RefreshCalendar`.
 
 ## [1.2.2] - 2026-09-11
