@@ -10,8 +10,8 @@
     <AssemblyName>WeekCalendarTray</AssemblyName>
     <Product>Week Calendar Tray</Product>
     <Company>Week Calendar Tray</Company>
-    <Version>1.2.2</Version>
-    <FileVersion>1.2.2.0</FileVersion>
+    <Version>1.3.0</Version>
+    <FileVersion>1.3.0.0</FileVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
