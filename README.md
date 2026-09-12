@@ -12,6 +12,8 @@ Version 1.2.1 addresses the calendar turning solid when an event-details window 
 
 - Shows the current day and ISO week number in the tray, with date, week, and time in the tooltip.
 - Opens a Monday-first calendar with month, year, and decade navigation.
+- Switches between a Month grid and a Day view with a compact header toggle. Day view hides the grid, steps one day at a time, and shows the selected day's full scrollable agenda including event locations. The `Day` button becomes `Today` once Day view is active.
+- Resizes by dragging the popup top or left edge and remembers the size across restarts.
 - Creates and deletes events stored only on this PC.
 - Reads one or more Google Calendar, Outlook, Microsoft 365, or other calendars through private iCal/ICS links. Synced events remain read-only.
 - Displays event details when supplied by a feed, including description, organizer, location, and source link.

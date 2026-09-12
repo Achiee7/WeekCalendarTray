@@ -15,14 +15,23 @@ internal enum CalendarDisplayMode
 {
     Month,
     Year,
-    Decade
+    Decade,
+    Day
 }
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
-    private const double BaseWindowWidth = 372d;
     private const double PrayerToggleWidth = 28d;
     private const double PrayerPanelWidth = 226d;
+
+    // Calendar body width, excluding prayer chrome. Seeded from settings, updated as
+    // the user drags, and persisted. The prayer panel widths are added on top of it.
+    private double _baseWindowWidth = PopupSize.DefaultWidth;
+    private double _appliedPrayerChromeWidth;
+    private double _persistedPopupWidth = PopupSize.DefaultWidth;
+    private double _persistedPopupHeight = PopupSize.DefaultHeight;
+    private bool _applyingLayoutWidth;
+    private DispatcherTimer? _popupSizeSaveTimer;
 
     private readonly CalendarSyncCoordinator _syncCoordinator;
     private readonly PrayerTimesCalculator _prayerTimesCalculator = new();
@@ -65,6 +74,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OpenSettingsCommand = new RelayCommand(_ => OpenSettings());
         OpenEventDetailsCommand = new RelayCommand(OpenEventDetails);
         TogglePrayerPanelCommand = new RelayCommand(_ => TogglePrayerPanel());
+        ShowMonthViewCommand = new RelayCommand(_ => ShowMonthView());
+        ShowDayViewCommand = new RelayCommand(_ => ShowDayView());
+        DayOrTodayCommand = new RelayCommand(_ =>
+        {
+            if (_displayMode == CalendarDisplayMode.Day) ShowToday();
+            else ShowDayView();
+        });
 
         _prayerTimer = new DispatcherTimer
         {
@@ -84,6 +100,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 CloseDayPreview();
                 CloseTransientWindows();
+                FlushPendingPopupSizeSave();
             }
             if (IsVisible && _prayerTimesEnabled)
             {
@@ -107,6 +124,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ICommand PreviousMonthCommand { get; }
 
     public ICommand NextMonthCommand { get; }
+
+    public ICommand ShowMonthViewCommand { get; }
+
+    public ICommand DayOrTodayCommand { get; }
+
+    public ICommand ShowDayViewCommand { get; }
 
     public ICommand TodayCommand { get; }
 
@@ -136,6 +159,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public string MonthTitle => _displayMode switch
     {
+        CalendarDisplayMode.Day => _selectedDate.ToDateTime(TimeOnly.MinValue).ToString("ddd d MMM yyyy", CultureInfo.CurrentCulture),
         CalendarDisplayMode.Year => _visibleMonth.Year.ToString(CultureInfo.CurrentCulture),
         CalendarDisplayMode.Decade => $"{GetDecadeStart(_visibleMonth.Year)} - {GetDecadeStart(_visibleMonth.Year) + 9}",
         _ => _visibleMonth.ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", CultureInfo.CurrentCulture)
@@ -145,9 +169,60 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    public Visibility OverviewVisibility => _displayMode == CalendarDisplayMode.Month
+    public Visibility OverviewVisibility => _displayMode is CalendarDisplayMode.Year or CalendarDisplayMode.Decade
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility DayViewVisibility => _displayMode == CalendarDisplayMode.Day
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public bool IsMonthView => _displayMode == CalendarDisplayMode.Month;
+
+    public bool IsDayView => _displayMode == CalendarDisplayMode.Day;
+
+    public GridLength CalendarGridRowHeight => _displayMode == CalendarDisplayMode.Day
+        ? new GridLength(0)
+        : new GridLength(264);
+
+    public DateOnly SelectedDate => _selectedDate;
+
+    public GridLength WeekdayHeaderRowHeight => _displayMode == CalendarDisplayMode.Day
+        ? new GridLength(0)
+        : new GridLength(30);
+
+    // Day view already names the date in the header, so its separate title row would
+    // only repeat it.
+    public GridLength NavigationTitleRowHeight => _displayMode == CalendarDisplayMode.Day
+        ? new GridLength(0)
+        : new GridLength(40);
+
+    public Visibility NavigationTitleVisibility => _displayMode == CalendarDisplayMode.Day
         ? Visibility.Collapsed
         : Visibility.Visible;
+
+    public string DayButtonContent => _displayMode == CalendarDisplayMode.Day ? "Today" : "Day";
+
+    public string DayButtonToolTip => _displayMode == CalendarDisplayMode.Day
+        ? "Jump to today"
+        : "Show the full agenda for the selected day";
+
+
+    public string PreviousStepToolTip => _displayMode switch
+    {
+        CalendarDisplayMode.Day => "Previous day",
+        CalendarDisplayMode.Year => "Previous year",
+        CalendarDisplayMode.Decade => "Previous decade",
+        _ => "Previous month"
+    };
+
+    public string NextStepToolTip => _displayMode switch
+    {
+        CalendarDisplayMode.Day => "Next day",
+        CalendarDisplayMode.Year => "Next year",
+        CalendarDisplayMode.Decade => "Next decade",
+        _ => "Next month"
+    };
 
     public GridLength PrayerToggleColumnWidth => _prayerTimesEnabled
         ? new GridLength(PrayerToggleWidth)
@@ -171,7 +246,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? "Hide prayer times"
         : "Show prayer times";
 
-    public string AgendaTitle => $"Agenda for {_selectedDate.ToDateTime(TimeOnly.MinValue).ToString("ddd d MMM", CultureInfo.CurrentCulture)}";
 
     public string AgendaEmptyText => SelectedDayEvents.Count == 0
         ? "No events found for this day."
@@ -246,7 +320,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _today = DateOnly.FromDateTime(DateTime.Now);
         _selectedDate = _today;
         _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_today);
+        _displayMode = CalendarDisplayMode.Day;
+        RefreshCalendar();
+    }
+
+    private void ShowMonthView()
+    {
+        _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_selectedDate);
         _displayMode = CalendarDisplayMode.Month;
+        RefreshCalendar();
+    }
+
+    private void ShowDayView()
+    {
+        _displayMode = CalendarDisplayMode.Day;
         RefreshCalendar();
     }
 
@@ -254,6 +341,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var settings = await _syncCoordinator.SettingsStore.LoadAsync();
         if (_closed) return;
+        ApplyPersistedPopupSize(settings);
         _prayerTimesEnabled = settings.PrayerTimesEnabled;
         _prayerLocation = new PrayerTimesLocation(
             settings.PrayerLocationName,
@@ -285,17 +373,188 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshPrayerPanel();
     }
 
+    /// <summary>
+    /// Restores the persisted popup size, clamped to the work area of the display the
+    /// popup is on. Settings roam, so a size saved on a larger monitor must not place
+    /// the window off-screen here.
+    /// </summary>
+    private void ApplyPersistedPopupSize(SyncSettings settings)
+    {
+        var workArea = PopupPositioner.GetWorkArea(this);
+        var maxWidth = Math.Max(MinWidth, workArea.Width - 24d);
+        var maxHeight = Math.Max(MinHeight, workArea.Height - 24d);
+
+        _baseWindowWidth = Math.Clamp(
+            PopupSize.NormalizeWidth(settings.PopupWidth),
+            PopupSize.MinWidth,
+            Math.Max(PopupSize.MinWidth, maxWidth - PrayerChromeWidth));
+
+        _applyingLayoutWidth = true;
+        try
+        {
+            Height = Math.Clamp(PopupSize.NormalizeHeight(settings.PopupHeight), MinHeight, maxHeight);
+        }
+        finally
+        {
+            _applyingLayoutWidth = false;
+        }
+
+        _persistedPopupWidth = _baseWindowWidth;
+        _persistedPopupHeight = Height;
+    }
+
+    private void ResizeTop_DragDelta(object sender, Primitives.DragDeltaEventArgs e) =>
+        ResizeFromTopLeft(0d, e.VerticalChange);
+
+    private void ResizeLeft_DragDelta(object sender, Primitives.DragDeltaEventArgs e) =>
+        ResizeFromTopLeft(e.HorizontalChange, 0d);
+
+    private void ResizeTopLeft_DragDelta(object sender, Primitives.DragDeltaEventArgs e) =>
+        ResizeFromTopLeft(e.HorizontalChange, e.VerticalChange);
+
+    /// <summary>
+    /// Resizes against a fixed bottom-right corner, which is the edge the popup is
+    /// anchored to. Enabling the OS sizing frame instead would hand the window a 7px
+    /// non-client border that Windows paints over the borderless chrome.
+    /// </summary>
+    private void ResizeFromTopLeft(double horizontalChange, double verticalChange)
+    {
+        if (_closed) return;
+
+        var workArea = PopupPositioner.GetWorkArea(this);
+        var currentWidth = double.IsFinite(Width) ? Width : ActualWidth;
+        var currentHeight = double.IsFinite(Height) ? Height : ActualHeight;
+        if (!double.IsFinite(currentWidth) || !double.IsFinite(currentHeight)) return;
+
+        if (horizontalChange != 0d)
+        {
+            // Cap so the left edge cannot cross the work area; the right edge is fixed.
+            var widthLimit = Math.Min(
+                PopupSize.MaxWidth + PrayerChromeWidth,
+                Math.Max(MinWidth, Left + currentWidth - workArea.Left - 8d));
+            var newWidth = Math.Clamp(currentWidth - horizontalChange, MinWidth, widthLimit);
+            Left += currentWidth - newWidth;
+            Width = newWidth;
+        }
+
+        if (verticalChange != 0d)
+        {
+            var heightLimit = Math.Min(
+                PopupSize.MaxHeight,
+                Math.Max(MinHeight, Top + currentHeight - workArea.Top - 8d));
+            var newHeight = Math.Clamp(currentHeight - verticalChange, MinHeight, heightLimit);
+            Top += currentHeight - newHeight;
+            Height = newHeight;
+        }
+    }
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_closed || _applyingLayoutWidth) return;
+
+        // A drag changes the whole window; the prayer chrome keeps its natural width,
+        // so everything above it belongs to the calendar body.
+        if (e.WidthChanged)
+        {
+            var body = ActualWidth - PrayerChromeWidth;
+            if (double.IsFinite(body) && body > 0d) _baseWindowWidth = body;
+        }
+
+        QueuePopupSizeSave();
+    }
+
+    /// <summary>
+    /// WPF raises SizeChanged continuously while dragging, and each save rewrites the
+    /// whole settings document, so coalesce onto one write after the drag settles.
+    /// </summary>
+    private void QueuePopupSizeSave()
+    {
+        _popupSizeSaveTimer ??= CreatePopupSizeSaveTimer();
+        _popupSizeSaveTimer.Stop();
+        _popupSizeSaveTimer.Start();
+    }
+
+    /// <summary>
+    /// Writes a pending size immediately. The popup hides on deactivation, which is the
+    /// common way a drag ends, and the debounce timer would otherwise still be pending.
+    /// </summary>
+    private void FlushPendingPopupSizeSave()
+    {
+        if (_popupSizeSaveTimer is not { IsEnabled: true }) return;
+        _popupSizeSaveTimer.Stop();
+        _ = RunUiOperationAsync(SavePopupSizeAsync);
+    }
+
+    private DispatcherTimer CreatePopupSizeSaveTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            _ = RunUiOperationAsync(SavePopupSizeAsync);
+        };
+        return timer;
+    }
+
+    private async Task SavePopupSizeAsync()
+    {
+        if (_closed) return;
+
+        var width = _baseWindowWidth;
+        var height = Height;
+        if (!double.IsFinite(width) || width <= 0d) width = ActualWidth - PrayerChromeWidth;
+        if (!double.IsFinite(height) || height <= 0d) height = ActualHeight;
+        if (!double.IsFinite(width) || !double.IsFinite(height)) return;
+
+        width = PopupSize.NormalizeWidth(width);
+        height = PopupSize.NormalizeHeight(height);
+        if (NearlyEquals(width, _persistedPopupWidth) && NearlyEquals(height, _persistedPopupHeight)) return;
+
+        // Re-read before writing: Settings is the other writer of this document, and a
+        // stale copy here would discard whatever it just saved.
+        var settings = await _syncCoordinator.SettingsStore.LoadAsync();
+        if (_closed) return;
+        settings.PopupWidth = width;
+        settings.PopupHeight = height;
+        await _syncCoordinator.SettingsStore.SaveAsync(settings);
+
+        _persistedPopupWidth = width;
+        _persistedPopupHeight = height;
+
+        // Deliberately no NotifySettingsChanged: it would reload prayer settings, which
+        // re-runs UpdatePrayerLayout and feeds another resize back into this path.
+    }
+
+    private static bool NearlyEquals(double left, double right) => Math.Abs(left - right) < 0.5d;
+
+    private double PrayerChromeWidth =>
+        (_prayerTimesEnabled ? PrayerToggleWidth : 0)
+        + (_prayerTimesEnabled && _prayerPanelExpanded ? PrayerPanelWidth : 0);
+
     private void UpdatePrayerLayout(bool reposition)
     {
-        var oldWidth = Width;
-        Width = BaseWindowWidth
-            + (_prayerTimesEnabled ? PrayerToggleWidth : 0)
-            + (_prayerTimesEnabled && _prayerPanelExpanded ? PrayerPanelWidth : 0);
+        // Measure the shift from the prayer chrome alone. Diffing total width would
+        // also absorb any width the user dragged to, sliding the popup sideways.
+        var oldChrome = _appliedPrayerChromeWidth;
+        var newChrome = PrayerChromeWidth;
+
+        _applyingLayoutWidth = true;
+        try
+        {
+            Width = _baseWindowWidth + newChrome;
+        }
+        finally
+        {
+            _applyingLayoutWidth = false;
+        }
+
+        _appliedPrayerChromeWidth = newChrome;
 
         if (reposition)
         {
-            var delta = Width - oldWidth;
-            Left = Clamp(Left - delta, SystemParameters.WorkArea.Left + 8, SystemParameters.WorkArea.Right - Width - 8);
+            var workArea = PopupPositioner.GetWorkArea(this);
+            var delta = newChrome - oldChrome;
+            Left = Clamp(Left - delta, workArea.Left + 8, workArea.Right - Width - 8);
         }
 
         OnPropertyChanged(nameof(PrayerToggleColumnWidth));
@@ -395,6 +654,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void MoveMonth(int monthOffset)
     {
+        if (_displayMode == CalendarDisplayMode.Day)
+        {
+            var dayIndex = _selectedDate.DayNumber + monthOffset;
+            if (dayIndex < DateOnly.MinValue.DayNumber || dayIndex > DateOnly.MaxValue.DayNumber)
+            {
+                return;
+            }
+
+            _selectedDate = DateOnly.FromDayNumber(dayIndex);
+            _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_selectedDate);
+            RefreshCalendar();
+            return;
+        }
+
         var months = monthOffset * (_displayMode == CalendarDisplayMode.Decade ? 120
             : _displayMode == CalendarDisplayMode.Year ? 12 : 1);
         var monthIndex = (_visibleMonth.Year - 1) * 12 + _visibleMonth.Month - 1 + months;
@@ -434,6 +707,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         _displayMode = _displayMode switch
         {
+            CalendarDisplayMode.Day => CalendarDisplayMode.Month,
             CalendarDisplayMode.Month => CalendarDisplayMode.Year,
             CalendarDisplayMode.Year => CalendarDisplayMode.Decade,
             _ => CalendarDisplayMode.Decade
@@ -495,7 +769,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(MonthTitle));
         OnPropertyChanged(nameof(MonthViewVisibility));
         OnPropertyChanged(nameof(OverviewVisibility));
-        OnPropertyChanged(nameof(AgendaTitle));
+        OnPropertyChanged(nameof(DayViewVisibility));
+        OnPropertyChanged(nameof(IsMonthView));
+        OnPropertyChanged(nameof(IsDayView));
+        OnPropertyChanged(nameof(CalendarGridRowHeight));
+        OnPropertyChanged(nameof(WeekdayHeaderRowHeight));
+        OnPropertyChanged(nameof(NavigationTitleRowHeight));
+        OnPropertyChanged(nameof(NavigationTitleVisibility));
+        OnPropertyChanged(nameof(DayButtonContent));
+        OnPropertyChanged(nameof(DayButtonToolTip));
+        OnPropertyChanged(nameof(PreviousStepToolTip));
+        OnPropertyChanged(nameof(NextStepToolTip));
         OnPropertyChanged(nameof(AgendaEmptyText));
         OnPropertyChanged(nameof(AgendaEmptyVisibility));
         RefreshPrayerPanel();
@@ -895,9 +1179,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    private Task RunUiOperationAsync(Func<Task> action) =>
-        AppDiagnostics.RunAsync("Calendar operation", action, () =>
+    private Task RunUiOperationAsync(Func<Task> action)
+    {
+        // The window is constructed before the dispatcher loop runs, so at that point
+        // there is no DispatcherSynchronizationContext to capture. Continuations after
+        // the first await would then resume on a thread-pool thread and throw on any
+        // UI access. Queue the operation so it starts inside a dispatcher callback,
+        // where WPF installs that context and awaits resume on the UI thread.
+        if (SynchronizationContext.Current is not DispatcherSynchronizationContext)
+        {
+            return Dispatcher.InvokeAsync(() => RunUiOperationAsync(action)).Task.Unwrap();
+        }
+
+        return AppDiagnostics.RunAsync("Calendar operation", action, () =>
         {
             if (!_closed) SyncStatusText = "Could not complete this operation. Please try again.";
         });
+    }
 }
