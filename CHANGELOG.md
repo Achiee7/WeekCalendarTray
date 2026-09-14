@@ -2,7 +2,27 @@
 
 All notable changes to Week Calendar Tray are documented here. The format follows Keep a Changelog, and releases use semantic versioning.
 
-## [Unreleased]
+## [1.4.0] - 2026-09-15
+
+### Added
+
+- Shared expandable side pane with a selected-day list or 24-hour timeline, optional Prayer tab, and inline event details with navigation and local-event deletion.
+- Main Month/Week selector, Monday-first week timeline, all-day row, overlap columns, midnight clipping, and a current-time indicator updated while the popup is visible.
+- Saved Day view layout preference in Settings. Narrow week views scroll horizontally; wider views distribute available space across seven days.
+
+### Changed
+
+- Avoid unchanged/hidden timeline renders, release hidden visuals, reuse marker elements and templates, cache tray icons and prayer calculations, and stop polling for disabled prayer notifications.
+- Clarify the slider as Glass tint and remove opaque minimum tint floors from grouped surfaces and controls. The native Windows acrylic material remains beneath the app's tint.
+- Restore the Today button to date navigation, preserving Month or Week instead of entering the merged fork's separate Day mode.
+- Keep the side-pane expand arrow available independently of the prayer setting and preserve the merged popup-resizing behavior.
+
+### Verification
+
+- Release solution build and core smoke tests pass. UI checks cover Today navigation, pane transitions, occurrence-day selection, settings persistence, timeline overlaps/overnight clipping, scrolling, resizing, inline detail layout, and native presentation-hook cleanup.
+- Reviewed synthetic screenshots for the week and day layouts and long inline details, with the shipped control resources loaded. This update does not newly verify desktop blur, sleep/resume, or other monitor configurations.
+
+## [1.3.0] - 2026-09-12
 
 ### Added
 

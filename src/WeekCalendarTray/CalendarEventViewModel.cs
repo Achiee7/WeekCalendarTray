@@ -13,6 +13,16 @@ public sealed class CalendarEventViewModel(CalendarEvent calendarEvent)
 
     public string Id => calendarEvent.Id;
 
+    public string SourceId => calendarEvent.SourceId;
+
+    public DateTimeOffset Start => calendarEvent.Start;
+
+    public DateTimeOffset End => calendarEvent.End;
+
+    public bool IsAllDay => calendarEvent.IsAllDay;
+
+    public bool OccursOn(DateOnly date) => calendarEvent.OccursOn(date);
+
     public string Title => calendarEvent.Title;
 
     public string Provider => calendarEvent.SourceName;

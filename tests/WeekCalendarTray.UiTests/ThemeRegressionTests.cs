@@ -18,6 +18,16 @@ internal static class ThemeRegressionTests
             Program.Assert(!ThemeManager.IsLightTheme, "Dark preference did not force the dark theme");
             var lowAlpha = ResourceBrush("GroupSurfaceBrush").Color.A;
             Program.Assert(ThemeManager.AcrylicOpacityPercent == 20, "minimum opacity must be 20 percent");
+            foreach (var theme in new[] { AppThemePreference.Light, AppThemePreference.Dark })
+            {
+                ThemeManager.SetAppearanceOptions(true, 20, theme);
+                Program.Assert(ResourceBrush("GroupSurfaceBrush").Color.A == 102,
+                    "low glass tint retained an opaque group-surface floor");
+                Program.Assert(ResourceBrush("InputBackgroundBrush").Color.A < 128,
+                    "low glass tint retained an opaque input-surface floor");
+                Program.Assert(ResourceBrush("ButtonBackgroundBrush").Color.A < 128,
+                    "low glass tint retained an opaque button-surface floor");
+            }
 
             ThemeManager.SetAppearanceOptions(true, int.MaxValue, AppThemePreference.Light);
             Program.Assert(ThemeManager.AcrylicOpacityPercent == ThemeManager.MaxAcrylicOpacityPercent,

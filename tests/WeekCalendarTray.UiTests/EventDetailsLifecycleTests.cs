@@ -25,11 +25,17 @@ internal static class EventDetailsLifecycleTests
             }
 
             PumpDispatcher(mainWindow);
-            var details = VisibleDetails(mainWindow);
-            Program.Assert(details.Count == 1, $"five rapid detail opens created {details.Count} windows");
             Program.Assert(
-                ReferenceEquals(details[0].DataContext, events[^1]),
-                "singleton detail window did not update to the last selected event");
+                ReferenceEquals(mainWindow.SelectedEvent, events[^1]),
+                "five rapid detail selections did not leave the last event in the pane");
+            Program.Assert(
+                mainWindow.DetailsPaneVisibility == Visibility.Visible,
+                "rapid detail selections did not show the details pane");
+            Program.Assert(VisibleDetails(mainWindow).Count == 0, "rapid detail selections opened a separate window");
+
+            mainWindow.BackFromDetailsCommand.Execute(null);
+            Program.Assert(mainWindow.SelectedEvent is null, "Back retained rapid-selection details");
+            Program.Assert(mainWindow.IsDayPaneActive, "Back did not restore the day pane");
 
             mainWindow.HideCommand.Execute(null);
             PumpDispatcher(mainWindow);
@@ -39,24 +45,29 @@ internal static class EventDetailsLifecycleTests
             mainWindow.Show();
             mainWindow.OpenEventDetailsCommand.Execute(events[0]);
             PumpDispatcher(mainWindow);
-            Program.Assert(VisibleDetails(mainWindow).Count == 1, "detail did not reopen before date selection");
+            Program.Assert(mainWindow.DetailsPaneVisibility == Visibility.Visible, "details pane did not reopen");
             var targetDate = new DateOnly(2026, 10, 14);
             mainWindow.SelectDateCommand.Execute(new CalendarDayViewModel(
                 new CalendarDay(targetDate, targetDate.Day, 42, true, false, false)));
             PumpDispatcher(mainWindow);
-            Program.Assert(VisibleDetails(mainWindow).Count == 0, "selecting a date left stale event details open");
+            Program.Assert(mainWindow.SelectedEvent is null, "selecting a date left stale event details in the pane");
+            Program.Assert(mainWindow.IsDayPaneActive, "selecting a date did not restore the day pane");
+            Program.Assert(VisibleDetails(mainWindow).Count == 0, "selecting a date opened a details window");
 
             mainWindow.OpenEventDetailsCommand.Execute(events[1]);
             PumpDispatcher(mainWindow);
             mainWindow.NextMonthCommand.Execute(null);
             PumpDispatcher(mainWindow);
-            Program.Assert(VisibleDetails(mainWindow).Count == 0, "month navigation left stale event details open");
+            Program.Assert(mainWindow.SelectedEvent is null, "month navigation left stale event details in the pane");
+            Program.Assert(mainWindow.IsDayPaneActive, "month navigation did not restore the day pane");
 
             mainWindow.OpenEventDetailsCommand.Execute(events[2]);
             PumpDispatcher(mainWindow);
             mainWindow.ZoomOutCalendarCommand.Execute(null);
             PumpDispatcher(mainWindow);
-            Program.Assert(VisibleDetails(mainWindow).Count == 0, "calendar-level navigation left stale event details open");
+            Program.Assert(mainWindow.SelectedEvent is null, "calendar-level navigation left stale details in the pane");
+            Program.Assert(mainWindow.IsDayPaneActive, "calendar-level navigation did not restore the day pane");
+            Program.Assert(VisibleDetails(mainWindow).Count == 0, "pane lifecycle created an EventDetailsWindow");
         }
         finally
         {

@@ -295,7 +295,7 @@ internal static class ThemeManager
         var glassEnabled = IsAcrylicEnabled && !SystemParameters.HighContrast;
         SetBrush(resources, "WindowPanelBrush", 0x20, 0x21, 0x24);
         SetBrush(resources, "WindowSurfaceBrush", 0x20, 0x21, 0x24);
-        SetAdaptiveBrush(resources, "GroupSurfaceBrush", 0x2B, 0x2D, 0x31, accentColor, 0.08d, 20, 78);
+        SetAdaptiveBrush(resources, "GroupSurfaceBrush", 0x2B, 0x2D, 0x31, accentColor, 0.08d, 20);
         SetBrush(resources, "WindowBorderBrush", 0x3A, 0x3C, 0x40);
         SetBrush(resources, "PrimaryTextBrush", glassEnabled ? (byte)0xF5 : (byte)0xF1, glassEnabled ? (byte)0xF6 : (byte)0xF3, glassEnabled ? (byte)0xF7 : (byte)0xF4);
         SetBrush(resources, "SecondaryTextBrush", glassEnabled ? (byte)0xE4 : (byte)0xA6, glassEnabled ? (byte)0xE6 : (byte)0xAB, glassEnabled ? (byte)0xE9 : (byte)0xB4);
@@ -303,11 +303,11 @@ internal static class ThemeManager
         SetBrush(resources, "MutedTextBrush", glassEnabled ? (byte)0xDF : (byte)0x9A, glassEnabled ? (byte)0xE1 : (byte)0xA0, glassEnabled ? (byte)0xE4 : (byte)0xA6);
         SetBrush(resources, "SubtleTextBrush", glassEnabled ? (byte)0xD3 : (byte)0x85, glassEnabled ? (byte)0xD6 : (byte)0x8B, glassEnabled ? (byte)0xDA : (byte)0x94);
         SetBrush(resources, "OutsideMonthTextBrush", glassEnabled ? (byte)0xC4 : (byte)0x7B, glassEnabled ? (byte)0xC8 : (byte)0x7F, glassEnabled ? (byte)0xCE : (byte)0x87);
-        SetAdaptiveBrush(resources, "ButtonBackgroundBrush", 0x30, 0x31, 0x34, accentColor, 0.05d, 18, 76);
+        SetAdaptiveBrush(resources, "ButtonBackgroundBrush", 0x30, 0x31, 0x34, accentColor, 0.05d, 18);
         SetBrush(resources, "ButtonBorderBrush", 0x46, 0x48, 0x4D);
         SetBrush(resources, "ButtonHoverBackgroundBrush", 0x3A, 0x3D, 0x42);
         SetBrush(resources, "ButtonPressedBackgroundBrush", 0x46, 0x4A, 0x50);
-        SetAdaptiveBrush(resources, "InputBackgroundBrush", 0x2B, 0x2D, 0x31, accentColor, 0.05d, 25, 82);
+        SetAdaptiveBrush(resources, "InputBackgroundBrush", 0x2B, 0x2D, 0x31, accentColor, 0.05d, 25);
         SetBrush(resources, "DayHoverBackgroundBrush", 0x34, 0x37, 0x3C);
         SetBrush(resources, "AgendaHoverBackgroundBrush", 0x2A, 0x2D, 0x31);
         SetBrush(resources, "DividerBrush", 0x35, 0x37, 0x3B);
@@ -323,7 +323,7 @@ internal static class ThemeManager
         var glassEnabled = IsAcrylicEnabled && !SystemParameters.HighContrast;
         SetBrush(resources, "WindowPanelBrush", 0xFF, 0xFF, 0xFF);
         SetBrush(resources, "WindowSurfaceBrush", 0xFF, 0xFF, 0xFF);
-        SetAdaptiveBrush(resources, "GroupSurfaceBrush", 0xF7, 0xF9, 0xFB, accentColor, 0.05d, 20, 78);
+        SetAdaptiveBrush(resources, "GroupSurfaceBrush", 0xF7, 0xF9, 0xFB, accentColor, 0.05d, 20);
         SetBrush(resources, "WindowBorderBrush", 0xD9, 0xDE, 0xE7);
         SetBrush(resources, "PrimaryTextBrush", 0x1F, 0x23, 0x28);
         SetBrush(resources, "SecondaryTextBrush", glassEnabled ? (byte)0x35 : (byte)0x4F, glassEnabled ? (byte)0x3D : (byte)0x5B, glassEnabled ? (byte)0x46 : (byte)0x67);
@@ -331,11 +331,11 @@ internal static class ThemeManager
         SetBrush(resources, "MutedTextBrush", glassEnabled ? (byte)0x42 : (byte)0x6E, glassEnabled ? (byte)0x4A : (byte)0x77, glassEnabled ? (byte)0x53 : (byte)0x81);
         SetBrush(resources, "SubtleTextBrush", glassEnabled ? (byte)0x4B : (byte)0x6E, glassEnabled ? (byte)0x53 : (byte)0x77, glassEnabled ? (byte)0x5C : (byte)0x81);
         SetBrush(resources, "OutsideMonthTextBrush", glassEnabled ? (byte)0x60 : (byte)0x9A, glassEnabled ? (byte)0x69 : (byte)0xA3, glassEnabled ? (byte)0x74 : (byte)0xAE);
-        SetAdaptiveBrush(resources, "ButtonBackgroundBrush", 0xF3, 0xF5, 0xF7, accentColor, 0.04d, 18, 76);
+        SetAdaptiveBrush(resources, "ButtonBackgroundBrush", 0xF3, 0xF5, 0xF7, accentColor, 0.04d, 18);
         SetBrush(resources, "ButtonBorderBrush", 0xCC, 0xD3, 0xDC);
         SetBrush(resources, "ButtonHoverBackgroundBrush", 0xE8, 0xEC, 0xF1);
         SetBrush(resources, "ButtonPressedBackgroundBrush", 0xDD, 0xE3, 0xEA);
-        SetAdaptiveBrush(resources, "InputBackgroundBrush", 0xF7, 0xF9, 0xFB, accentColor, 0.03d, 25, 82);
+        SetAdaptiveBrush(resources, "InputBackgroundBrush", 0xF7, 0xF9, 0xFB, accentColor, 0.03d, 25);
         SetBrush(resources, "DayHoverBackgroundBrush", 0xEE, 0xF3, 0xF6);
         SetBrush(resources, "AgendaHoverBackgroundBrush", 0xF4, 0xF7, 0xFA);
         SetBrush(resources, "DividerBrush", 0xE1, 0xE6, 0xED);
@@ -359,11 +359,10 @@ internal static class ThemeManager
         byte blue,
         Media.Color accentColor,
         double accentWeight,
-        int opacityOffset,
-        int minimumOpacity)
+        int opacityOffset)
     {
         var alphaPercent = IsAcrylicEnabled && !SystemParameters.HighContrast
-            ? Math.Clamp(AcrylicOpacityPercent + opacityOffset, minimumOpacity, 100)
+            ? Math.Clamp(AcrylicOpacityPercent + opacityOffset, MinAcrylicOpacityPercent, 100)
             : 100;
         resources[key] = new Media.SolidColorBrush(Media.Color.FromArgb(
             (byte)Math.Round(alphaPercent * 2.55d),

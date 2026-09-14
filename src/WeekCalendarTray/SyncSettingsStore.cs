@@ -16,6 +16,7 @@ internal sealed class SyncSettingsStore
         settings.AcrylicOpacityPercent = Math.Clamp(settings.AcrylicOpacityPercent,
             ThemeManager.MinAcrylicOpacityPercent, ThemeManager.MaxAcrylicOpacityPercent);
         settings.ThemePreference = AppThemePreferences.Parse(settings.ThemePreference).ToString();
+        settings.DayViewLayout = DayViewLayouts.Parse(settings.DayViewLayout);
         settings.PopupWidth = PopupSize.NormalizeWidth(settings.PopupWidth);
         settings.PopupHeight = PopupSize.NormalizeHeight(settings.PopupHeight);
         if (!double.IsFinite(settings.PrayerLatitude) || Math.Abs(settings.PrayerLatitude) > 90
@@ -26,6 +27,7 @@ internal sealed class SyncSettingsStore
 
     public async Task SaveAsync(SyncSettings settings)
     {
+        settings.DayViewLayout = DayViewLayouts.Parse(settings.DayViewLayout);
         await AtomicJsonFile.SaveAsync(AppPaths.SyncSettingsPath, settings);
     }
 }

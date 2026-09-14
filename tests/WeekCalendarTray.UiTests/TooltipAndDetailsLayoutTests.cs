@@ -13,7 +13,7 @@ internal static class TooltipAndDetailsLayoutTests
     public static void Run(MainWindow mainWindow, string artifactDirectory)
     {
         TestBoundedDayPreview(mainWindow);
-        TestLongDetailsLayout(artifactDirectory);
+        TestLongDetailsLayout(mainWindow, artifactDirectory);
     }
 
     private static void TestBoundedDayPreview(MainWindow mainWindow)
@@ -99,7 +99,7 @@ internal static class TooltipAndDetailsLayoutTests
         refresh.GetAwaiter().GetResult();
     }
 
-    private static void TestLongDetailsLayout(string artifactDirectory)
+    private static void TestLongDetailsLayout(MainWindow mainWindow, string artifactDirectory)
     {
         const string meetingUrl = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_synthetic_test_only";
         const string sourceUrl = "https://example.invalid/calendar/event/this-is-a-deliberately-long-read-only-source-link-for-layout-verification";
@@ -118,22 +118,39 @@ internal static class TooltipAndDetailsLayoutTests
             $"{meetingUrl}{Environment.NewLine}{string.Join(' ', Enumerable.Repeat("Long synthetic details remain scrollable.", 30))}",
             "Synthetic Organizer With A Long Display Name",
             sourceUrl);
-        var details = new EventDetailsWindow(new CalendarEventViewModel(calendarEvent));
+        var eventViewModel = new CalendarEventViewModel(calendarEvent);
 
         try
         {
-            var root = (FrameworkElement)details.Content;
-            Program.MeasureAndArrange(root, details.Width, details.Height);
-            details.DetailsActions.UpdateLayout();
+            mainWindow.Show();
+            mainWindow.OpenEventDetailsCommand.Execute(eventViewModel);
+            mainWindow.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            var root = (FrameworkElement)mainWindow.Content;
+            Program.MeasureAndArrange(root, mainWindow.Width, mainWindow.Height);
 
-            Program.Assert(details.Width == 460d && details.Height == 520d, "event details dimensions changed");
-            Program.AssertNoOverlap(details.DetailsScrollViewer, details.DetailsActions, root,
+            Program.Assert(mainWindow.DetailsPaneVisibility == Visibility.Visible,
+                "long event details were not hosted in the unified pane");
+            Program.Assert(mainWindow.SidePanelColumnWidth.Value == 320d,
+                "event details pane did not retain the unified 320px width");
+            Program.Assert(
+                !Application.Current.Windows.OfType<EventDetailsWindow>()
+                    .Any(window => window.Owner == mainWindow && window.IsVisible),
+                "long event details opened a separate EventDetailsWindow");
+
+            var sourceBox = Program.Descendants<TextBox>(root).Single(textBox => textBox.Text == sourceUrl);
+            var detailsScrollViewer = Program.Descendants<ScrollViewer>(root)
+                .Single(scrollViewer => Program.Descendants<TextBox>(scrollViewer)
+                    .Any(textBox => ReferenceEquals(textBox, sourceBox)));
+            var detailsActions = Program.Descendants<WrapPanel>(root)
+                .Single(panel => Program.Descendants<Button>(panel)
+                    .Any(button => Equals(button.Content, "Navigate")));
+            Program.AssertNoOverlap(detailsScrollViewer, detailsActions, root,
                 "details scroll area", "details actions");
 
-            var actionButtons = Program.Descendants<Button>(details.DetailsActions)
+            var actionButtons = Program.Descendants<Button>(detailsActions)
                 .Where(button => button.Visibility == Visibility.Visible)
                 .ToArray();
-            Program.Assert(actionButtons.Length == 5, "long synthetic details did not expose all five actions");
+            Program.Assert(actionButtons.Length == 4, "long synthetic details did not expose all four pane actions");
             for (var first = 0; first < actionButtons.Length; first++)
             {
                 for (var second = first + 1; second < actionButtons.Length; second++)
@@ -143,15 +160,14 @@ internal static class TooltipAndDetailsLayoutTests
                 }
             }
 
-            var sourceBox = Program.Descendants<TextBox>(root).Single(textBox => textBox.Text == sourceUrl);
             Program.Assert(sourceBox.IsReadOnly, "event source URL is not read-only");
-            Program.Assert(sourceBox.TextWrapping == TextWrapping.NoWrap, "event source URL wraps into the footer");
-            Program.RenderWindowContent(details,
-                Path.Combine(artifactDirectory, "EventDetailsWindow-long-content.png"));
+            Program.Assert(sourceBox.TextWrapping == TextWrapping.Wrap, "event source URL does not wrap within the pane");
+            Program.RenderWindowContent(mainWindow,
+                Path.Combine(artifactDirectory, "MainWindow-details-pane-long-content.png"));
         }
         finally
         {
-            details.Close();
+            mainWindow.BackFromDetailsCommand.Execute(null);
         }
     }
 }

@@ -20,6 +20,19 @@ internal static class AppThemePreferences
     }
 }
 
+internal static class DayViewLayouts
+{
+    public const string List = "List";
+    public const string Timeline = "Timeline";
+
+    public static string Parse(string? value)
+    {
+        return value?.Equals(Timeline, StringComparison.OrdinalIgnoreCase) == true
+            ? Timeline
+            : List;
+    }
+}
+
 internal sealed class SyncSettings
 {
     public List<IcalSubscription> Subscriptions { get; set; } = [];
@@ -37,6 +50,8 @@ internal sealed class SyncSettings
     public int AcrylicOpacityPercent { get; set; } = 75;
 
     public string ThemePreference { get; set; } = nameof(AppThemePreference.System);
+
+    public string DayViewLayout { get; set; } = DayViewLayouts.List;
 
     public bool PrayerTimesEnabled { get; set; }
 

@@ -6,7 +6,11 @@ Week Calendar Tray is a .NET 8 WPF notification-area utility for Windows. It pre
 
 ## Release State
 
-- Current source release: `1.2.2`, dated 2026-09-11.
+- Current release version: `1.4.0`, prepared on 2026-09-15 after integrating the merged `1.3.0` resizing/day-view work and performance improvements.
+- The shared side pane defaults to selected-day content (List or Timeline, saved as `DayViewLayout`), offers Prayer only when enabled, and displays event details inline. The main Month/Week control preserves Today as date navigation. Week columns resize with the popup and scroll horizontally below their readable minimum.
+- Release build, core smoke tests, and UI checks pass for the development update. Rendered layout artifacts are in `C:\tmp\calendar-1.4.0`; these contain synthetic events only. New native desktop blur tests were not run for this update.
+- Performance follow-up: unchanged timeline renders are skipped; hidden timeline visuals are released; marker updates reuse elements (0 bytes allocated across 1000 same-minute updates in the regression test). Prayer settings/timetables and tray icons are cached with invalidation; disabled notifications stop polling. Updated tests pass in `C:\tmp\calendar-1.4.0-perf`. The attempted first-open desktop capture was skipped because its background could not be reliably observed.
+- The slider is now labeled Glass tint: it controls the app tint over Windows Desktop Acrylic, not total composited opacity. Low-setting control/group opacity floors were removed. The Windows material and its fallback remain unchanged.
 - Version 1.2.2 prepares native glass before tray Show and resets/reapplies the backdrop once at dispatcher idle per opening. Desktop first-open tests passed at 20% and 75% for three openings each, without panel interaction. Opacity now ranges from 20% to 95%.
 - Version 1.2.1 addresses inactive calendar glass while event details is active. A borderless-window WM_NCACTIVATE presentation hook leaves input activation and keyboard focus untouched and is detached on disable/close. Native desktop pixel verification still depends on an accessible desktop.
 - The 1.2.0 package and local installation were verified; settings and local-event hashes and startup preference were preserved.
@@ -45,7 +49,8 @@ Projects:
 Important application components:
 
 - `TrayApplicationController`: notification icon, menus, popup lifecycle, timers, synchronization, and prayer notifications.
-- `MainWindow`: calendar navigation, agenda, local-event UI, event indicators, and prayer panel.
+- `MainWindow`: calendar navigation, month/week selection, unified day/prayer/details pane, local-event UI, and event indicators.
+- `TimelineView` and `TimelineLayout`: shared day/week rendering, 24-hour scroll area, all-day entries, clipped overnight events, overlap-column assignment, source colors, and current-time indicator. Layout uses the existing parsed calendar events and PC local timezone; it does not change synchronization or recurrence parsing.
 - `SettingsWindow`: clean grouped settings UI, `System`/`Light`/`Dark` selection, live appearance preview, native-glass surface opacity, explicit `Save`/`Close`, startup, prayer settings, and typed-location workflow.
 - `CalendarSyncCoordinator`: settings, iCal fetching, cache updates, and background sync coordination.
 - `LocalCalendarEventStore`: local event persistence and deletion.

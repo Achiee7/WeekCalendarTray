@@ -17,6 +17,14 @@ internal sealed class TrayApplicationController : IDisposable
     private bool _disposed;
     private bool _prayerNotificationCheckRunning;
     private string? _lastPrayerNotificationKey;
+    private DateOnly? _trayIconDate;
+    private bool? _trayIconIsLightTheme;
+    private SyncSettings? _cachedPrayerSettings;
+    private int _prayerSettingsVersion;
+    private DateOnly? _cachedPrayerTimetableDate;
+    private PrayerTimesLocation? _cachedPrayerTimetableLocation;
+    private TimeZoneInfo? _cachedPrayerTimetableTimeZone;
+    private DailyPrayerTimes? _cachedPrayerTimetable;
     private MainWindow? _popup;
 
     public TrayApplicationController()
@@ -45,6 +53,7 @@ internal sealed class TrayApplicationController : IDisposable
             Interval = TimeSpan.FromSeconds(15)
         };
         _prayerNotificationTimer.Tick += (_, _) => _ = AppDiagnostics.RunAsync("Prayer notification check", CheckPrayerNotificationAsync);
+        _syncCoordinator.SettingsChanged += SyncCoordinator_SettingsChanged;
         ThemeManager.ThemeChanged += ThemeManager_ThemeChanged;
     }
 
@@ -73,6 +82,7 @@ internal sealed class TrayApplicationController : IDisposable
         _prayerNotificationTimer.Stop();
         _notifyIcon.Visible = false;
         _notifyIcon.MouseUp -= NotifyIcon_MouseUp;
+        _syncCoordinator.SettingsChanged -= SyncCoordinator_SettingsChanged;
         ThemeManager.ThemeChanged -= ThemeManager_ThemeChanged;
         _notifyIcon.Icon?.Dispose();
         _notifyIcon.ContextMenuStrip?.Dispose();
@@ -162,9 +172,16 @@ internal sealed class TrayApplicationController : IDisposable
         var now = DateTime.Now;
         _notifyIcon.Text = TrayTextBuilder.Build(now);
 
-        var previousIcon = _notifyIcon.Icon;
-        _notifyIcon.Icon = TrayIconRenderer.Create(now);
-        previousIcon?.Dispose();
+        var today = DateOnly.FromDateTime(now);
+        var isLightTheme = ThemeManager.IsLightTheme;
+        if (_notifyIcon.Icon is null || _trayIconDate != today || _trayIconIsLightTheme != isLightTheme)
+        {
+            var previousIcon = _notifyIcon.Icon;
+            _notifyIcon.Icon = TrayIconRenderer.Create(now);
+            previousIcon?.Dispose();
+            _trayIconDate = today;
+            _trayIconIsLightTheme = isLightTheme;
+        }
     }
 
     private async Task CheckPrayerNotificationAsync()
@@ -177,9 +194,14 @@ internal sealed class TrayApplicationController : IDisposable
         _prayerNotificationCheckRunning = true;
         try
         {
-            var settings = await _syncCoordinator.SettingsStore.LoadAsync();
-            if (_disposed || !settings.PrayerTimesEnabled || !settings.PrayerNotificationsEnabled)
+            var (settings, settingsVersion) = await GetPrayerSettingsAsync();
+            if (_disposed || settings is null || settingsVersion != _prayerSettingsVersion)
             {
+                return;
+            }
+            if (!settings.PrayerTimesEnabled || !settings.PrayerNotificationsEnabled)
+            {
+                _prayerNotificationTimer.Stop();
                 return;
             }
 
@@ -189,7 +211,13 @@ internal sealed class TrayApplicationController : IDisposable
                 settings.PrayerLongitude);
             var now = DateTimeOffset.Now;
             var today = DateOnly.FromDateTime(now.LocalDateTime);
-            var prayerTimes = _prayerTimesCalculator.Calculate(today, location, TimeZoneInfo.Local);
+            var timeZone = TimeZoneInfo.Local;
+            var prayerTimes = GetPrayerTimetable(today, location, timeZone);
+
+            if (_disposed || settingsVersion != _prayerSettingsVersion)
+            {
+                return;
+            }
 
             foreach (var prayerTime in prayerTimes.Prayers.Where(IsNotificationPrayer))
             {
@@ -214,6 +242,59 @@ internal sealed class TrayApplicationController : IDisposable
         {
             _prayerNotificationCheckRunning = false;
         }
+    }
+
+    private async Task<(SyncSettings? Settings, int Version)> GetPrayerSettingsAsync()
+    {
+        if (_cachedPrayerSettings is not null)
+        {
+            return (_cachedPrayerSettings, _prayerSettingsVersion);
+        }
+
+        var loadVersion = _prayerSettingsVersion;
+        var settings = await _syncCoordinator.SettingsStore.LoadAsync();
+        if (_disposed || loadVersion != _prayerSettingsVersion)
+        {
+            return (null, loadVersion);
+        }
+
+        _cachedPrayerSettings = settings;
+        return (settings, loadVersion);
+    }
+
+    private DailyPrayerTimes GetPrayerTimetable(
+        DateOnly date,
+        PrayerTimesLocation location,
+        TimeZoneInfo timeZone)
+    {
+        if (_cachedPrayerTimetable is not null
+            && _cachedPrayerTimetableDate == date
+            && Equals(_cachedPrayerTimetableLocation, location)
+            && Equals(_cachedPrayerTimetableTimeZone, timeZone))
+        {
+            return _cachedPrayerTimetable;
+        }
+
+        _cachedPrayerTimetable = _prayerTimesCalculator.Calculate(date, location, timeZone);
+        _cachedPrayerTimetableDate = date;
+        _cachedPrayerTimetableLocation = location;
+        _cachedPrayerTimetableTimeZone = timeZone;
+        return _cachedPrayerTimetable;
+    }
+
+    private void SyncCoordinator_SettingsChanged(object? sender, EventArgs e)
+    {
+        RunOnUiThread(() =>
+        {
+            if (_disposed) return;
+            _prayerSettingsVersion++;
+            _cachedPrayerSettings = null;
+            _cachedPrayerTimetable = null;
+            _cachedPrayerTimetableDate = null;
+            _cachedPrayerTimetableLocation = null;
+            _cachedPrayerTimetableTimeZone = null;
+            _prayerNotificationTimer.Start();
+        });
     }
 
     private void ShowPrayerNotification(PrayerTime prayerTime, PrayerTimesLocation location)

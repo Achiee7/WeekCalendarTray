@@ -188,12 +188,10 @@ internal static class NativeAcrylicVisualTests
                 artifactDirectory,
                 "MainWindow-native-acrylic-backdrop");
 
-            window.OpenEventDetailsCommand.Execute(CreateSyntheticDetailsEvent());
-            window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
-            detailsWindow = Application.Current.Windows
-                .OfType<EventDetailsWindow>()
-                .SingleOrDefault(candidate => candidate.Owner == window && candidate.IsVisible)
-                ?? throw new InvalidOperationException("synthetic owned event-details window did not open");
+            // Event details are now inline. Keep a synthetic owned window here to
+            // exercise the native backdrop policy still used by Settings and Add.
+            detailsWindow = new EventDetailsWindow(CreateSyntheticDetailsEvent()) { Owner = window };
+            detailsWindow.Show();
             detailsWindow.Activate();
             FlushDesktop(detailsWindow);
 

@@ -8,15 +8,23 @@ internal static class StartupManager
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "WeekCalendarTray";
+    private static bool _testEnabled;
 
     public static bool IsEnabled()
     {
+        if (AppPaths.TestDataDirectory is not null) return _testEnabled;
         using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
         return !string.IsNullOrWhiteSpace(key?.GetValue(ValueName) as string);
     }
 
     public static void SetEnabled(bool enabled)
     {
+        // Isolated UI tests must never register their executable in the user's Run key.
+        if (AppPaths.TestDataDirectory is not null)
+        {
+            _testEnabled = enabled;
+            return;
+        }
         using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)
             ?? Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
 

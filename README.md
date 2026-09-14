@@ -2,7 +2,13 @@
 
 Week Calendar Tray is a lightweight Windows tray calendar with ISO week numbers, local events, read-only iCal/ICS subscriptions, and optional locally calculated prayer times. It runs beside the Windows clock and opens its own popup; it does not replace the built-in Windows calendar flyout.
 
-The current source release is **1.2.2**, dated 2026-09-11.
+The current version is **1.4.0**, following the merged 1.3.0 resizing update.
+
+Version 1.4.0 unifies the expanded day agenda, prayer times, and event details in one side pane. The main calendar switches between Month and a scrollable Week timeline. `Today` returns to the current date without changing between Month and Week.
+
+Performance refinements skip unchanged timeline renders, release hidden timeline visuals, reuse current-time markers and tray icons, and cache prayer timetables and notification settings. Notification polling stops when disabled. Only a visible Prayer pane needs a one-second UI timer; other open views use a 30-second check and the UI timer stops when hidden.
+
+The `Glass tint` percentage controls the app's added tint, not the total opacity of Windows Desktop Acrylic. Windows supplies its own blur/material underneath. At low settings, buttons and grouped surfaces now follow the slider instead of retaining 76-82% minimum tint levels. Text and event colors remain opaque.
 
 Version 1.2.2 prepares glass before the tray window is shown and re-creates the native backdrop once after opening. This corrects the solid first-open appearance without requiring prayer-panel or event interaction. The opacity slider now ranges from 20% to 95%, with the existing 75% default unchanged. First-open desktop pixel checks passed at 20% and 75% across three openings each.
 
@@ -12,7 +18,9 @@ Version 1.2.1 addresses the calendar turning solid when an event-details window 
 
 - Shows the current day and ISO week number in the tray, with date, week, and time in the tooltip.
 - Opens a Monday-first calendar with month, year, and decade navigation.
-- Switches between a Month grid and a Day view with a compact header toggle. Day view hides the grid, steps one day at a time, and shows the selected day's full scrollable agenda including event locations. The `Day` button becomes `Today` once Day view is active.
+- Switches between a Month grid and a Monday-first Week timeline using the main header controls. Timelines show all 24 hours, source-colored event blocks, a separate all-day row, overlapping appointments in separate columns, and a live current-time line on today.
+- Expands a shared side pane for the selected day. Settings offers a List or Timeline day layout; selecting an event opens its details in that same pane, with a back action to return to the day.
+- Adds a Prayer tab to the side pane only when prayer times are enabled. The expand arrow remains available when prayer times are off.
 - Resizes by dragging the popup top or left edge and remembers the size across restarts.
 - Creates and deletes events stored only on this PC.
 - Reads one or more Google Calendar, Outlook, Microsoft 365, or other calendars through private iCal/ICS links. Synced events remain read-only.
@@ -76,7 +84,7 @@ Synced calendars are read-only: create, edit, and delete those events in their s
 
 ## Prayer Times
 
-Enable prayer times in `Settings...` and type a city or address. Geocoding occurs only when you click `Find`, or when you click `Save` after changing the typed location. The app sends the typed query to OpenStreetMap Nominatim and stores the returned coordinates. It does not use GPS.
+Enable prayer times in `Settings...` and type a city or address. Expand the side pane and select its Prayer tab to see the timetable and countdown; Day returns to the selected date's agenda. Geocoding occurs only when you click `Find`, or when you click `Save` after changing the typed location. The app sends the typed query to OpenStreetMap Nominatim and stores the returned coordinates. It does not use GPS.
 
 Prayer times are then calculated locally from the saved coordinates by a custom astronomical/seasonal approximation intended to stay near the published Koran.nl-style timetable behavior in the Netherlands. The app does **not** extract live times from Koran.nl. Results can differ from a mosque timetable, and the calculation currently uses the local timezone configured on the PC rather than deriving a timezone from the saved coordinates.
 

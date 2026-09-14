@@ -37,6 +37,10 @@ internal static class Program
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown
         };
+        application.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("/WeekCalendarTray;component/ControlResources.xaml", UriKind.Relative)
+        });
 
         MainWindow? mainWindow = null;
         SettingsWindow? settingsWindow = null;
@@ -46,6 +50,8 @@ internal static class Program
             WaitForThemeInitialization();
             TestCalendarDayColorsAndToggles();
             ThemeRegressionTests.Run();
+            PerformanceRegressionTests.Run();
+            TimelineViewTests.Run(artifactDirectory);
             if (args.Contains("--native-first-open", StringComparer.OrdinalIgnoreCase))
                 NativeAcrylicVisualTests.RunFirstOpen(artifactDirectory);
 
@@ -53,45 +59,9 @@ internal static class Program
             mainWindow = new MainWindow(coordinator);
             TestMeasuredDayStripe(mainWindow);
             PopulateMainWindow(mainWindow);
+            UnifiedPaneTests.Run(mainWindow, artifactDirectory);
 
-            Assert(mainWindow.DayButtonContent == "Day", "month view did not label the toggle Day");
-            mainWindow.DayOrTodayCommand.Execute(null);
-            Assert(mainWindow.IsDayView, "day toggle did not select day view");
-            Assert(mainWindow.DayButtonContent == "Today", "day view did not relabel the toggle Today");
-            Assert(
-                mainWindow.NavigationTitleRowHeight.Value == 0d,
-                "day view kept the duplicate title row");
-            Assert(mainWindow.DayViewVisibility == Visibility.Visible, "day view did not become visible");
-            Assert(mainWindow.CalendarGridRowHeight.Value == 0d, "day view retained the month grid row");
-            Assert(mainWindow.WeekdayHeaderRowHeight.Value == 0d, "day view retained the weekday header row");
-            Assert(mainWindow.PreviousStepToolTip == "Previous day", "day view kept the month navigation tooltip");
-            var dayBeforeStep = mainWindow.SelectedDate;
-            mainWindow.NextMonthCommand.Execute(null);
-            Assert(
-                mainWindow.SelectedDate == dayBeforeStep.AddDays(1),
-                "day view navigation did not advance a single day");
-            mainWindow.PreviousMonthCommand.Execute(null);
-            Assert(mainWindow.SelectedDate == dayBeforeStep, "day view navigation did not step back a single day");
-            RenderWindowContent(
-                mainWindow,
-                Path.Combine(artifactDirectory, "MainWindow-day-dark.png"));
-            // A second press, now labelled Today, must jump to today rather than re-enter Day view.
-            mainWindow.DayOrTodayCommand.Execute(null);
-            Assert(
-                mainWindow.SelectedDate == DateOnly.FromDateTime(DateTime.Now),
-                "second day-toggle press did not jump to today");
-            Assert(mainWindow.IsDayView, "jumping to today left day view");
-
-            mainWindow.ShowMonthViewCommand.Execute(null);
-            Assert(mainWindow.IsMonthView, "month toggle did not restore month view");
-            Assert(mainWindow.DayButtonContent == "Day", "month view did not restore the Day label");
-            Assert(
-                mainWindow.NavigationTitleRowHeight.Value == 40d,
-                "month view lost its title row");
-            Assert(mainWindow.WeekdayHeaderRowHeight.Value == 30d, "month view lost the weekday header row");
-            Assert(mainWindow.PreviousStepToolTip == "Previous month", "month view kept the day navigation tooltip");
-
-            AssertClose(372d, mainWindow.Width, "normal main-window width");
+            AssertClose(PopupSize.DefaultWidth + 28d, mainWindow.Width, "collapsed main-window width");
             TestPopupResizePersistence(mainWindow);
             ApplyTheme(light: false, acrylic: false);
             RenderWindowContent(
@@ -106,16 +76,16 @@ internal static class Program
                     "Synthetic location with a deliberately long display name for layout verification",
                     51.8936d,
                     5.0913d));
-            var widthBeforePrayerPanel = mainWindow.Width;
-            mainWindow.TogglePrayerPanelCommand.Execute(null);
+            var widthBeforeSidePanel = mainWindow.Width;
+            mainWindow.ToggleSidePanelCommand.Execute(null);
+            mainWindow.ShowPrayerPaneCommand.Execute(null);
             SetPrivateField(mainWindow, "_prayerCountdownText", "MAGHRIB 00:00:00");
             RaisePropertyChanged(mainWindow, "PrayerCountdownText");
-            // Assert the prayer chrome as a delta, not an absolute: the base width is
-            // user-resizable now, so a fixed 626 would only hold at the default size.
+            // The 28px toggle is always present. Expanding adds only the unified pane.
             AssertClose(
-                widthBeforePrayerPanel + 28d + 226d,
+                widthBeforeSidePanel + 320d,
                 mainWindow.Width,
-                "prayer panel width delta");
+                "unified side panel width delta");
             ApplyTheme(light: true, acrylic: true);
             RenderWindowContent(
                 mainWindow,
@@ -183,23 +153,20 @@ internal static class Program
         AssertClose(PopupSize.MinWidth, PopupSize.NormalizeWidth(10d), "narrow width clamps up");
         AssertClose(PopupSize.MaxHeight, PopupSize.NormalizeHeight(99999d), "tall height clamps down");
 
-        // A user-dragged width must survive a prayer-panel toggle. UpdatePrayerLayout
-        // used to reassign Width from a constant, silently discarding the drag.
+        // A user-dragged width must survive unified-pane expansion and collapse.
         var restoreBaseWidth = GetPrivateDouble(mainWindow, "_baseWindowWidth");
         SetPrivateField(mainWindow, "_baseWindowWidth", 520d);
-        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
-        AssertClose(520d, mainWindow.Width, "dragged width applied");
+        InvokePrivate(mainWindow, "UpdateSideLayout", false);
+        AssertClose(520d + 28d, mainWindow.Width, "dragged width plus side toggle applied");
 
-        SetPrivateField(mainWindow, "_prayerTimesEnabled", true);
-        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
-        AssertClose(520d + 28d, mainWindow.Width, "dragged width kept when prayer chrome appears");
-        SetPrivateField(mainWindow, "_prayerTimesEnabled", false);
-        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
-        AssertClose(520d, mainWindow.Width, "dragged width kept when prayer chrome is removed");
+        mainWindow.ToggleSidePanelCommand.Execute(null);
+        AssertClose(520d + 28d + 320d, mainWindow.Width, "dragged width kept with side pane expanded");
+        mainWindow.ToggleSidePanelCommand.Execute(null);
+        AssertClose(520d + 28d, mainWindow.Width, "dragged width kept with side pane collapsed");
 
         SetPrivateField(mainWindow, "_baseWindowWidth", restoreBaseWidth);
-        InvokePrivate(mainWindow, "UpdatePrayerLayout", false);
-        AssertClose(restoreBaseWidth, mainWindow.Width, "base width restored for later checks");
+        InvokePrivate(mainWindow, "UpdateSideLayout", false);
+        AssertClose(restoreBaseWidth + 28d, mainWindow.Width, "base width restored for later checks");
 
         // Round-trip through the real store, so the isolated harness settings file
         // proves load-side normalization runs on what save-side wrote.
@@ -271,6 +238,13 @@ internal static class Program
                 ?? throw new InvalidOperationException($"ShowPopup did not create popup {index + 1}.");
             popup.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             Assert(popup.IsVisible, $"popup reopen {index + 1} was not visible");
+            if (index == 0)
+            {
+                Assert(popup.IsMonthView, "controller's initial popup opening did not default to month view");
+                Assert(
+                    popup.SelectedDate == DateOnly.FromDateTime(DateTime.Now),
+                    "controller's initial popup opening did not select today");
+            }
             var handle = new WindowInteropHelper(popup).Handle;
             Assert(handle != IntPtr.Zero, $"popup reopen {index + 1} had no HWND");
             Assert(HwndSource.FromHwnd(handle) is not null, $"popup reopen {index + 1} had no HwndSource");
@@ -689,7 +663,7 @@ internal static class Program
         return field.GetValue(target) as T;
     }
 
-    private static void RaisePropertyChanged(object target, string propertyName)
+    internal static void RaisePropertyChanged(object target, string propertyName)
     {
         InvokePrivate(target, "OnPropertyChanged", propertyName);
     }

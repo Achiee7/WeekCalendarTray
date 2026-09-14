@@ -15,16 +15,64 @@ internal static class SettingsAppearanceTests
 
     public static void Run(CalendarSyncCoordinator coordinator, string artifactDirectory)
     {
+        using var startupKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+            @"Software\Microsoft\Windows\CurrentVersion\Run");
+        var originalStartup = startupKey?.GetValue("WeekCalendarTray");
+        StartupManager.SetEnabled(true);
+        Program.Assert(StartupManager.IsEnabled(), "isolated startup setting did not enable");
+        StartupManager.SetEnabled(false);
+        Program.Assert(!StartupManager.IsEnabled(), "isolated startup setting did not disable");
         var incomingAppearance = AppearanceState.Capture();
         SettingsWindow? window = null;
 
         try
         {
+            var store = new SyncSettingsStore();
+            var persistedSettings = store.LoadAsync().GetAwaiter().GetResult();
+            Program.Assert(
+                persistedSettings.DayViewLayout == DayViewLayouts.List,
+                "Day view layout did not default to List");
+
+            persistedSettings.DayViewLayout = "invalid-test-value";
+            store.SaveAsync(persistedSettings).GetAwaiter().GetResult();
+            Program.Assert(
+                persistedSettings.DayViewLayout == DayViewLayouts.List,
+                "Saving did not canonicalize an invalid day view layout to List");
+            Program.Assert(
+                store.LoadAsync().GetAwaiter().GetResult().DayViewLayout == DayViewLayouts.List,
+                "Invalid day view layout did not normalize to List");
+
+            persistedSettings.DayViewLayout = "timeline";
+            store.SaveAsync(persistedSettings).GetAwaiter().GetResult();
+            Program.Assert(
+                persistedSettings.DayViewLayout == DayViewLayouts.Timeline,
+                "Saving did not canonicalize Timeline casing");
+
             window = new SettingsWindow(coordinator);
             window.Show();
             WaitUntil(
                 () => window.SaveButton.IsEnabled,
                 "Settings did not finish loading from the isolated test store");
+            Program.Assert(
+                window.DayViewLayoutComboBox.SelectedIndex == 1,
+                "Settings did not load the persisted Timeline day view layout");
+            Program.Assert(
+                window.DayViewLayoutComboBox.Items.Count == 2,
+                "Day view selector did not expose exactly List and Timeline");
+            Program.Assert(
+                ((ComboBoxItem)window.DayViewLayoutComboBox.Items[0]).Content as string == DayViewLayouts.List
+                && ((ComboBoxItem)window.DayViewLayoutComboBox.Items[1]).Content as string == DayViewLayouts.Timeline,
+                "Day view selector choices were not List and Timeline");
+
+            window.DayViewLayoutComboBox.SelectedIndex = 0;
+            var saveOperation = window.Dispatcher.InvokeAsync(
+                () => window.SaveButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)));
+            WaitUntil(
+                () => saveOperation.Status == DispatcherOperationStatus.Completed && window.SaveButton.IsEnabled,
+                "Settings did not finish saving the List day view layout");
+            Program.Assert(
+                store.LoadAsync().GetAwaiter().GetResult().DayViewLayout == DayViewLayouts.List,
+                "Settings did not persist the selected List day view layout");
 
             var loadedAppearance = AppearanceState.Capture();
             AssertThemePreview(window, AppThemePreference.System);
@@ -70,6 +118,8 @@ internal static class SettingsAppearanceTests
             }
 
             incomingAppearance.Apply();
+            Program.Assert(Equals(originalStartup, startupKey?.GetValue("WeekCalendarTray")),
+                "Settings test modified the real Windows startup entry");
         }
     }
 

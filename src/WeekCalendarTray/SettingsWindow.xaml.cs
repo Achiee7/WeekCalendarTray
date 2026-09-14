@@ -83,6 +83,7 @@ public partial class SettingsWindow : Window
         AcrylicOpacityValueText.Text = $"{settings.AcrylicOpacityPercent}%";
         var themePreference = AppThemePreferences.Parse(settings.ThemePreference);
         ThemePreferenceComboBox.SelectedIndex = (int)themePreference;
+        DayViewLayoutComboBox.SelectedIndex = settings.DayViewLayout == DayViewLayouts.Timeline ? 1 : 0;
         _savedAcrylicEnabled = settings.AcrylicEnabled;
         _savedAcrylicOpacityPercent = settings.AcrylicOpacityPercent;
         _savedThemePreference = themePreference;
@@ -131,6 +132,7 @@ public partial class SettingsWindow : Window
         settings.AcrylicOpacityPercent = GetSelectedAcrylicOpacity();
         var themePreference = GetSelectedThemePreference();
         settings.ThemePreference = themePreference.ToString();
+        settings.DayViewLayout = GetSelectedDayViewLayout();
         var startWithWindows = StartWithWindowsCheckBox.IsChecked == true;
         var prayerStatus = await SavePrayerSettingsAsync(settings);
         if (_isClosed)
@@ -527,6 +529,7 @@ public partial class SettingsWindow : Window
         FindPrayerLocationButton.IsEnabled = _settingsLoaded && !isBusy;
         AcrylicEnabledCheckBox.IsEnabled = _settingsLoaded && !isBusy;
         ThemePreferenceComboBox.IsEnabled = _settingsLoaded && !isBusy;
+        DayViewLayoutComboBox.IsEnabled = _settingsLoaded && !isBusy;
         UpdateAcrylicOpacityPanelState();
     }
 
@@ -582,6 +585,13 @@ public partial class SettingsWindow : Window
             (int)AppThemePreference.Dark => AppThemePreference.Dark,
             _ => AppThemePreference.System
         };
+    }
+
+    private string GetSelectedDayViewLayout()
+    {
+        return DayViewLayoutComboBox.SelectedIndex == 1
+            ? DayViewLayouts.Timeline
+            : DayViewLayouts.List;
     }
 
     private void SettingsWindow_Closing(object? sender, CancelEventArgs e)

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
@@ -7,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using WeekCalendarTray.Core;
 using Controls = System.Windows.Controls;
+using MessageBox = System.Windows.MessageBox;
 using Primitives = System.Windows.Controls.Primitives;
 
 namespace WeekCalendarTray;
@@ -14,20 +16,27 @@ namespace WeekCalendarTray;
 internal enum CalendarDisplayMode
 {
     Month,
+    Week,
     Year,
-    Decade,
-    Day
+    Decade
+}
+
+internal enum SidePaneMode
+{
+    Day,
+    Prayer,
+    Details
 }
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
-    private const double PrayerToggleWidth = 28d;
-    private const double PrayerPanelWidth = 226d;
+    private const double SideToggleWidth = 28d;
+    private const double SidePanelWidth = 320d;
 
-    // Calendar body width, excluding prayer chrome. Seeded from settings, updated as
-    // the user drags, and persisted. The prayer panel widths are added on top of it.
+    // Calendar body width excludes the side-pane chrome. It is seeded from settings,
+    // updated as the user drags, and persisted independently of the pane state.
     private double _baseWindowWidth = PopupSize.DefaultWidth;
-    private double _appliedPrayerChromeWidth;
+    private double _appliedSideChromeWidth;
     private double _persistedPopupWidth = PopupSize.DefaultWidth;
     private double _persistedPopupHeight = PopupSize.DefaultHeight;
     private bool _applyingLayoutWidth;
@@ -35,20 +44,27 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private readonly CalendarSyncCoordinator _syncCoordinator;
     private readonly PrayerTimesCalculator _prayerTimesCalculator = new();
-    private readonly DispatcherTimer _prayerTimer;
+    private readonly Dictionary<DateOnly, DailyPrayerTimes> _prayerCache = [];
+    private TimeZoneInfo? _prayerCacheZone;
+    private PrayerTimesLocation? _prayerCacheLocation;
+    private readonly DispatcherTimer _uiTimer;
     private CalendarDisplayMode _displayMode = CalendarDisplayMode.Month;
     private DateOnly _selectedDate;
     private DateOnly _today;
     private DateOnly _visibleMonth;
     private int _eventRefreshVersion;
     private bool _keepOpenForChildWindow;
-    private EventDetailsWindow? _detailsWindow;
     private Controls.ToolTip? _activeDayPreview;
     private bool _closingChildren;
     private bool _closed;
     private (DateOnly Date, PrayerTimesLocation Location, DateTimeOffset Next)? _displayedPrayerState;
     private bool _prayerTimesEnabled;
-    private bool _prayerPanelExpanded;
+    private bool _sidePanelExpanded;
+    private SidePaneMode _sidePaneMode = SidePaneMode.Day;
+    private CalendarEventViewModel? _selectedEvent;
+    private string _dayViewLayout = "List";
+    private IReadOnlyList<CalendarEventViewModel> _dayTimelineEvents = [];
+    private IReadOnlyList<CalendarEventViewModel> _weekTimelineEvents = [];
     private string _syncStatusText = "Sync not configured.";
     private string _prayerCountdownText = "Prayer times off";
     private string _prayerLocationText = string.Empty;
@@ -73,23 +89,39 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SyncNowCommand = new RelayCommand(_ => _ = RunUiOperationAsync(SyncNowAsync));
         OpenSettingsCommand = new RelayCommand(_ => OpenSettings());
         OpenEventDetailsCommand = new RelayCommand(OpenEventDetails);
-        TogglePrayerPanelCommand = new RelayCommand(_ => TogglePrayerPanel());
+        ToggleSidePanelCommand = new RelayCommand(_ => ToggleSidePanel());
+        ShowDayPaneCommand = new RelayCommand(_ => ShowDayPane());
+        ShowPrayerPaneCommand = new RelayCommand(_ => ShowPrayerPane());
+        BackFromDetailsCommand = new RelayCommand(_ => ShowDayPane());
         ShowMonthViewCommand = new RelayCommand(_ => ShowMonthView());
-        ShowDayViewCommand = new RelayCommand(_ => ShowDayView());
-        DayOrTodayCommand = new RelayCommand(_ =>
-        {
-            if (_displayMode == CalendarDisplayMode.Day) ShowToday();
-            else ShowDayView();
-        });
+        ShowWeekViewCommand = new RelayCommand(_ => ShowWeekView());
 
-        _prayerTimer = new DispatcherTimer
+        _uiTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(1)
+            Interval = TimeSpan.FromSeconds(30)
         };
-        _prayerTimer.Tick += (_, _) => RefreshPrayerPanel();
+        _uiTimer.Tick += (_, _) =>
+        {
+            var currentDate = DateOnly.FromDateTime(DateTime.Now);
+            if (currentDate != _today)
+            {
+                RefreshCalendar();
+            }
+            if (WeekTimeline.IsVisible) WeekTimeline.RefreshCurrentTime();
+            if (DayTimeline.IsVisible) DayTimeline.RefreshCurrentTime();
+            if (_prayerTimesEnabled && _sidePanelExpanded && IsPrayerPaneActive) RefreshPrayerPanel();
+        };
 
         InitializeComponent();
         DataContext = this;
+        DayTimeline.EventSelected += (_, calendarEvent) => OpenEventDetails(calendarEvent);
+        DayTimeline.DateSelected += (_, date) => SelectTimelineDate(date);
+        WeekTimeline.EventSelected += (_, calendarEvent) =>
+        {
+            SelectTimelineDate(WeekTimeline.SelectedEventDate);
+            OpenEventDetails(calendarEvent);
+        };
+        WeekTimeline.DateSelected += (_, date) => SelectTimelineDate(date);
         _syncCoordinator.EventsChanged += SyncCoordinator_EventsChanged;
         _syncCoordinator.SettingsChanged += SyncCoordinator_SettingsChanged;
         RefreshCalendar();
@@ -102,12 +134,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 CloseTransientWindows();
                 FlushPendingPopupSizeSave();
             }
-            if (IsVisible && _prayerTimesEnabled)
+            if (IsVisible)
             {
-                RefreshPrayerPanel();
-                _prayerTimer.Start();
+                RefreshTimelineViews();
+                if (_prayerTimesEnabled) RefreshPrayerPanel();
+                _uiTimer.Start();
             }
-            else _prayerTimer.Stop();
+            else _uiTimer.Stop();
         };
     }
 
@@ -127,9 +160,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public ICommand ShowMonthViewCommand { get; }
 
-    public ICommand DayOrTodayCommand { get; }
-
-    public ICommand ShowDayViewCommand { get; }
+    public ICommand ShowWeekViewCommand { get; }
 
     public ICommand TodayCommand { get; }
 
@@ -149,7 +180,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public ICommand OpenEventDetailsCommand { get; }
 
-    public ICommand TogglePrayerPanelCommand { get; }
+    public ICommand ToggleSidePanelCommand { get; }
+
+    public ICommand ShowDayPaneCommand { get; }
+
+    public ICommand ShowPrayerPaneCommand { get; }
+
+    public ICommand BackFromDetailsCommand { get; }
 
     public string SelectedDateTitle => _selectedDate
         .ToDateTime(TimeOnly.MinValue)
@@ -159,7 +196,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public string MonthTitle => _displayMode switch
     {
-        CalendarDisplayMode.Day => _selectedDate.ToDateTime(TimeOnly.MinValue).ToString("ddd d MMM yyyy", CultureInfo.CurrentCulture),
+        CalendarDisplayMode.Week => GetWeekTitle(),
         CalendarDisplayMode.Year => _visibleMonth.Year.ToString(CultureInfo.CurrentCulture),
         CalendarDisplayMode.Decade => $"{GetDecadeStart(_visibleMonth.Year)} - {GetDecadeStart(_visibleMonth.Year) + 9}",
         _ => _visibleMonth.ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", CultureInfo.CurrentCulture)
@@ -173,44 +210,32 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    public Visibility DayViewVisibility => _displayMode == CalendarDisplayMode.Day
+    public Visibility WeekViewVisibility => _displayMode == CalendarDisplayMode.Week
         ? Visibility.Visible
         : Visibility.Collapsed;
 
     public bool IsMonthView => _displayMode == CalendarDisplayMode.Month;
 
-    public bool IsDayView => _displayMode == CalendarDisplayMode.Day;
+    public bool IsWeekView => _displayMode == CalendarDisplayMode.Week;
 
-    public GridLength CalendarGridRowHeight => _displayMode == CalendarDisplayMode.Day
+    public GridLength CalendarGridRowHeight => _displayMode == CalendarDisplayMode.Week
         ? new GridLength(0)
         : new GridLength(264);
 
     public DateOnly SelectedDate => _selectedDate;
 
-    public GridLength WeekdayHeaderRowHeight => _displayMode == CalendarDisplayMode.Day
+    public GridLength WeekdayHeaderRowHeight => _displayMode == CalendarDisplayMode.Week
         ? new GridLength(0)
         : new GridLength(30);
 
-    // Day view already names the date in the header, so its separate title row would
-    // only repeat it.
-    public GridLength NavigationTitleRowHeight => _displayMode == CalendarDisplayMode.Day
-        ? new GridLength(0)
-        : new GridLength(40);
+    public GridLength NavigationTitleRowHeight => new(40);
 
-    public Visibility NavigationTitleVisibility => _displayMode == CalendarDisplayMode.Day
-        ? Visibility.Collapsed
-        : Visibility.Visible;
-
-    public string DayButtonContent => _displayMode == CalendarDisplayMode.Day ? "Today" : "Day";
-
-    public string DayButtonToolTip => _displayMode == CalendarDisplayMode.Day
-        ? "Jump to today"
-        : "Show the full agenda for the selected day";
+    public Visibility NavigationTitleVisibility => Visibility.Visible;
 
 
     public string PreviousStepToolTip => _displayMode switch
     {
-        CalendarDisplayMode.Day => "Previous day",
+        CalendarDisplayMode.Week => "Previous week",
         CalendarDisplayMode.Year => "Previous year",
         CalendarDisplayMode.Decade => "Previous decade",
         _ => "Previous month"
@@ -218,33 +243,80 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public string NextStepToolTip => _displayMode switch
     {
-        CalendarDisplayMode.Day => "Next day",
+        CalendarDisplayMode.Week => "Next week",
         CalendarDisplayMode.Year => "Next year",
         CalendarDisplayMode.Decade => "Next decade",
         _ => "Next month"
     };
 
-    public GridLength PrayerToggleColumnWidth => _prayerTimesEnabled
-        ? new GridLength(PrayerToggleWidth)
-        : new GridLength(0);
+    public GridLength SideToggleColumnWidth => new(SideToggleWidth);
 
-    public GridLength PrayerPanelColumnWidth => _prayerTimesEnabled && _prayerPanelExpanded
-        ? new GridLength(PrayerPanelWidth)
+    public GridLength SidePanelColumnWidth => _sidePanelExpanded
+        ? new GridLength(SidePanelWidth)
         : new GridLength(0);
 
     public Visibility PrayerFeatureVisibility => _prayerTimesEnabled
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    public Visibility PrayerPanelVisibility => _prayerTimesEnabled && _prayerPanelExpanded
+    public Visibility SidePanelVisibility => _sidePanelExpanded
         ? Visibility.Visible
         : Visibility.Collapsed;
 
-    public string PrayerToggleContent => _prayerPanelExpanded ? ">" : "<";
+    public string SideToggleContent => _sidePanelExpanded ? ">" : "<";
 
-    public string PrayerToggleToolTip => _prayerPanelExpanded
-        ? "Hide prayer times"
-        : "Show prayer times";
+    public string SideToggleToolTip => _sidePanelExpanded
+        ? "Hide side panel"
+        : "Show day view";
+
+    public bool IsDayPaneActive => _sidePaneMode == SidePaneMode.Day;
+
+    public bool IsPrayerPaneActive => _sidePaneMode == SidePaneMode.Prayer;
+
+    public Visibility SideTabsVisibility => _sidePaneMode == SidePaneMode.Details
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public Visibility DayPaneVisibility => _sidePaneMode == SidePaneMode.Day
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility PrayerPaneVisibility => _sidePaneMode == SidePaneMode.Prayer && _prayerTimesEnabled
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility DetailsPaneVisibility => _sidePaneMode == SidePaneMode.Details && SelectedEvent is not null
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility SideFooterVisibility => _sidePaneMode == SidePaneMode.Day
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility DayListVisibility => _dayViewLayout.Equals("Timeline", StringComparison.OrdinalIgnoreCase)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    public Visibility DayTimelineVisibility => _dayViewLayout.Equals("Timeline", StringComparison.OrdinalIgnoreCase)
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Visibility DayListEmptyVisibility =>
+        DayListVisibility == Visibility.Visible && SelectedDayEvents.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+    public CalendarEventViewModel? SelectedEvent
+    {
+        get => _selectedEvent;
+        private set
+        {
+            if (ReferenceEquals(_selectedEvent, value)) return;
+            _selectedEvent = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DetailsPaneVisibility));
+        }
+    }
 
 
     public string AgendaEmptyText => SelectedDayEvents.Count == 0
@@ -320,8 +392,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _today = DateOnly.FromDateTime(DateTime.Now);
         _selectedDate = _today;
         _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_today);
-        _displayMode = CalendarDisplayMode.Day;
+        if (_displayMode is CalendarDisplayMode.Year or CalendarDisplayMode.Decade)
+        {
+            _displayMode = CalendarDisplayMode.Month;
+        }
+        if (_sidePanelExpanded) SetSidePaneMode(SidePaneMode.Day);
         RefreshCalendar();
+        if (_displayMode == CalendarDisplayMode.Week)
+        {
+            Dispatcher.BeginInvoke(() => WeekTimeline.ScrollToCurrentTime(), DispatcherPriority.Loaded);
+        }
+        if (_sidePanelExpanded)
+        {
+            Dispatcher.BeginInvoke(() => DayTimeline.ScrollToCurrentTime(), DispatcherPriority.Loaded);
+        }
     }
 
     private void ShowMonthView()
@@ -331,10 +415,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         RefreshCalendar();
     }
 
-    private void ShowDayView()
+    private void ShowWeekView()
     {
-        _displayMode = CalendarDisplayMode.Day;
+        _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_selectedDate);
+        _displayMode = CalendarDisplayMode.Week;
         RefreshCalendar();
+        Dispatcher.BeginInvoke(() => WeekTimeline.ScrollToCurrentTime(), DispatcherPriority.Loaded);
     }
 
     private async Task LoadPrayerSettingsAsync()
@@ -343,6 +429,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_closed) return;
         ApplyPersistedPopupSize(settings);
         _prayerTimesEnabled = settings.PrayerTimesEnabled;
+        _dayViewLayout = settings.DayViewLayout;
         _prayerLocation = new PrayerTimesLocation(
             settings.PrayerLocationName,
             settings.PrayerLatitude,
@@ -350,27 +437,55 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         if (!_prayerTimesEnabled)
         {
-            _prayerPanelExpanded = false;
+            if (_sidePaneMode == SidePaneMode.Prayer) SetSidePaneMode(SidePaneMode.Day);
         }
 
-        UpdatePrayerLayout(reposition: IsVisible);
-        if (IsVisible && _prayerTimesEnabled) _prayerTimer.Start();
-        else _prayerTimer.Stop();
+        OnPropertyChanged(nameof(DayListVisibility));
+        OnPropertyChanged(nameof(DayTimelineVisibility));
+        OnPropertyChanged(nameof(DayListEmptyVisibility));
+        UpdateSideLayout(reposition: IsVisible);
+        if (IsVisible) _uiTimer.Start();
+        else _uiTimer.Stop();
+        RefreshPrayerPanel();
+        RefreshTimelineViews();
+    }
+
+    private void ToggleSidePanel()
+    {
+        if (_closed) return;
+        _sidePanelExpanded = !_sidePanelExpanded;
+        if (!_sidePanelExpanded) _uiTimer.Interval = TimeSpan.FromSeconds(30);
+        if (_sidePanelExpanded)
+        {
+            SetSidePaneMode(SidePaneMode.Day);
+        }
+
+        UpdateSideLayout(reposition: IsVisible);
         RefreshPrayerPanel();
     }
 
-    private void TogglePrayerPanel()
-    {
-        if (_closed) return;
-        if (!_prayerTimesEnabled)
-        {
-            _displayedPrayerState = null;
-            return;
-        }
+    private void ShowDayPane() => SetSidePaneMode(SidePaneMode.Day);
 
-        _prayerPanelExpanded = !_prayerPanelExpanded;
-        UpdatePrayerLayout(reposition: IsVisible);
-        RefreshPrayerPanel();
+    private void ShowPrayerPane()
+    {
+        if (_prayerTimesEnabled) SetSidePaneMode(SidePaneMode.Prayer);
+    }
+
+    private void SetSidePaneMode(SidePaneMode mode)
+    {
+        if (mode == SidePaneMode.Prayer && !_prayerTimesEnabled) mode = SidePaneMode.Day;
+        _sidePaneMode = mode;
+        _uiTimer.Interval = TimeSpan.FromSeconds(mode == SidePaneMode.Prayer && _sidePanelExpanded ? 1 : 30);
+        if (mode != SidePaneMode.Details) SelectedEvent = null;
+        OnPropertyChanged(nameof(IsDayPaneActive));
+        OnPropertyChanged(nameof(IsPrayerPaneActive));
+        OnPropertyChanged(nameof(SideTabsVisibility));
+        OnPropertyChanged(nameof(DayPaneVisibility));
+        OnPropertyChanged(nameof(PrayerPaneVisibility));
+        OnPropertyChanged(nameof(DetailsPaneVisibility));
+        OnPropertyChanged(nameof(SideFooterVisibility));
+        if (mode == SidePaneMode.Day) RefreshTimelineViews();
+        if (mode == SidePaneMode.Prayer) RefreshPrayerPanel();
     }
 
     /// <summary>
@@ -387,7 +502,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _baseWindowWidth = Math.Clamp(
             PopupSize.NormalizeWidth(settings.PopupWidth),
             PopupSize.MinWidth,
-            Math.Max(PopupSize.MinWidth, maxWidth - PrayerChromeWidth));
+            Math.Max(PopupSize.MinWidth, maxWidth - SideChromeWidth));
 
         _applyingLayoutWidth = true;
         try
@@ -430,7 +545,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             // Cap so the left edge cannot cross the work area; the right edge is fixed.
             var widthLimit = Math.Min(
-                PopupSize.MaxWidth + PrayerChromeWidth,
+                PopupSize.MaxWidth + SideChromeWidth,
                 Math.Max(MinWidth, Left + currentWidth - workArea.Left - 8d));
             var newWidth = Math.Clamp(currentWidth - horizontalChange, MinWidth, widthLimit);
             Left += currentWidth - newWidth;
@@ -456,7 +571,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         // so everything above it belongs to the calendar body.
         if (e.WidthChanged)
         {
-            var body = ActualWidth - PrayerChromeWidth;
+            var body = ActualWidth - SideChromeWidth;
             if (double.IsFinite(body) && body > 0d) _baseWindowWidth = body;
         }
 
@@ -502,7 +617,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         var width = _baseWindowWidth;
         var height = Height;
-        if (!double.IsFinite(width) || width <= 0d) width = ActualWidth - PrayerChromeWidth;
+        if (!double.IsFinite(width) || width <= 0d) width = ActualWidth - SideChromeWidth;
         if (!double.IsFinite(height) || height <= 0d) height = ActualHeight;
         if (!double.IsFinite(width) || !double.IsFinite(height)) return;
 
@@ -521,48 +636,51 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _persistedPopupWidth = width;
         _persistedPopupHeight = height;
 
-        // Deliberately no NotifySettingsChanged: it would reload prayer settings, which
-        // re-runs UpdatePrayerLayout and feeds another resize back into this path.
+        // Deliberately no NotifySettingsChanged: it would reload settings and feed the
+        // resulting side-pane resize back into this path.
     }
 
     private static bool NearlyEquals(double left, double right) => Math.Abs(left - right) < 0.5d;
 
-    private double PrayerChromeWidth =>
-        (_prayerTimesEnabled ? PrayerToggleWidth : 0)
-        + (_prayerTimesEnabled && _prayerPanelExpanded ? PrayerPanelWidth : 0);
+    private double SideChromeWidth =>
+        SideToggleWidth + (_sidePanelExpanded ? SidePanelWidth : 0);
 
-    private void UpdatePrayerLayout(bool reposition)
+    private void UpdateSideLayout(bool reposition)
     {
-        // Measure the shift from the prayer chrome alone. Diffing total width would
+        // Measure the shift from the side-pane chrome alone. Diffing total width would
         // also absorb any width the user dragged to, sliding the popup sideways.
-        var oldChrome = _appliedPrayerChromeWidth;
-        var newChrome = PrayerChromeWidth;
+        var oldChrome = _appliedSideChromeWidth;
+        var newChrome = SideChromeWidth;
+        var workArea = PopupPositioner.GetWorkArea(this);
+        var minimumTotalWidth = PopupSize.MinWidth + newChrome;
+        var availableWidth = Math.Max(minimumTotalWidth, workArea.Width - 16d);
+        var desiredTotalWidth = Math.Min(_baseWindowWidth + newChrome, availableWidth);
 
         _applyingLayoutWidth = true;
         try
         {
-            Width = _baseWindowWidth + newChrome;
+            MinWidth = minimumTotalWidth;
+            Width = desiredTotalWidth;
         }
         finally
         {
             _applyingLayoutWidth = false;
         }
 
-        _appliedPrayerChromeWidth = newChrome;
+        _appliedSideChromeWidth = newChrome;
 
         if (reposition)
         {
-            var workArea = PopupPositioner.GetWorkArea(this);
             var delta = newChrome - oldChrome;
             Left = Clamp(Left - delta, workArea.Left + 8, workArea.Right - Width - 8);
         }
 
-        OnPropertyChanged(nameof(PrayerToggleColumnWidth));
-        OnPropertyChanged(nameof(PrayerPanelColumnWidth));
+        OnPropertyChanged(nameof(SideToggleColumnWidth));
+        OnPropertyChanged(nameof(SidePanelColumnWidth));
         OnPropertyChanged(nameof(PrayerFeatureVisibility));
-        OnPropertyChanged(nameof(PrayerPanelVisibility));
-        OnPropertyChanged(nameof(PrayerToggleContent));
-        OnPropertyChanged(nameof(PrayerToggleToolTip));
+        OnPropertyChanged(nameof(SidePanelVisibility));
+        OnPropertyChanged(nameof(SideToggleContent));
+        OnPropertyChanged(nameof(SideToggleToolTip));
     }
 
     private void RefreshPrayerPanel()
@@ -585,7 +703,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var state = (_selectedDate, _prayerLocation, nextPrayer.Time);
         if (_displayedPrayerState != state)
         {
-            var selectedPrayerTimes = _prayerTimesCalculator.Calculate(_selectedDate, _prayerLocation, timeZone);
+            var selectedPrayerTimes = GetCachedPrayerTimes(_selectedDate, timeZone);
             PrayerTimes.Clear();
             foreach (var prayerTime in selectedPrayerTimes.Prayers)
             {
@@ -615,7 +733,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var today = DateOnly.FromDateTime(now.LocalDateTime);
         foreach (var date in new[] { today, today.AddDays(1) })
         {
-            var dayPrayerTimes = _prayerTimesCalculator.Calculate(date, _prayerLocation, timeZone);
+            var dayPrayerTimes = GetCachedPrayerTimes(date, timeZone);
             var nextPrayer = dayPrayerTimes.Prayers
                 .Where(IsCountdownPrayer)
                 .FirstOrDefault(prayerTime => prayerTime.Time > now);
@@ -626,8 +744,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
         }
 
-        return _prayerTimesCalculator
-            .Calculate(today.AddDays(1), _prayerLocation, timeZone)
+        return GetCachedPrayerTimes(today.AddDays(1), timeZone)
             .Prayers
             .First(IsCountdownPrayer);
     }
@@ -654,9 +771,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void MoveMonth(int monthOffset)
     {
-        if (_displayMode == CalendarDisplayMode.Day)
+        if (_displayMode == CalendarDisplayMode.Week)
         {
-            var dayIndex = _selectedDate.DayNumber + monthOffset;
+            var dayIndex = _selectedDate.DayNumber + (monthOffset * 7);
             if (dayIndex < DateOnly.MinValue.DayNumber || dayIndex > DateOnly.MaxValue.DayNumber)
             {
                 return;
@@ -665,6 +782,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _selectedDate = DateOnly.FromDayNumber(dayIndex);
             _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(_selectedDate);
             RefreshCalendar();
+            Dispatcher.BeginInvoke(() => WeekTimeline.ScrollToCurrentTime(), DispatcherPriority.Loaded);
             return;
         }
 
@@ -699,15 +817,46 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         _selectedDate = day.Date;
         _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(day.Date);
-        _displayMode = CalendarDisplayMode.Month;
+        if (_sidePanelExpanded) SetSidePaneMode(SidePaneMode.Day);
         RefreshCalendar();
+        if (_sidePanelExpanded)
+        {
+            Dispatcher.BeginInvoke(() => DayTimeline.ScrollToCurrentTime(), DispatcherPriority.Loaded);
+        }
+    }
+
+    private DailyPrayerTimes GetCachedPrayerTimes(DateOnly date, TimeZoneInfo zone)
+    {
+        if (!ReferenceEquals(zone, _prayerCacheZone) || _prayerCacheLocation != _prayerLocation)
+        {
+            _prayerCache.Clear();
+            _prayerCacheZone = zone;
+            _prayerCacheLocation = _prayerLocation;
+        }
+        if (_prayerCache.TryGetValue(date, out var cached)) return cached;
+        if (_prayerCache.Count >= 4) _prayerCache.Clear();
+        return _prayerCache[date] = _prayerTimesCalculator.Calculate(date, _prayerLocation, zone);
+    }
+
+    private void SelectTimelineDate(DateOnly date)
+    {
+        if (date.Year is < 2 or > 9998) return;
+        _selectedDate = date;
+        _visibleMonth = CalendarGridBuilder.FirstDayOfMonth(date);
+        if (_sidePanelExpanded) SetSidePaneMode(SidePaneMode.Day);
+        RefreshCalendar();
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_displayMode == CalendarDisplayMode.Week) WeekTimeline.ScrollToCurrentTime();
+            if (_sidePanelExpanded) DayTimeline.ScrollToCurrentTime();
+        }, DispatcherPriority.Loaded);
     }
 
     private void ZoomOutCalendar()
     {
         _displayMode = _displayMode switch
         {
-            CalendarDisplayMode.Day => CalendarDisplayMode.Month,
+            CalendarDisplayMode.Week => CalendarDisplayMode.Month,
             CalendarDisplayMode.Month => CalendarDisplayMode.Year,
             CalendarDisplayMode.Year => CalendarDisplayMode.Decade,
             _ => CalendarDisplayMode.Decade
@@ -769,20 +918,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(MonthTitle));
         OnPropertyChanged(nameof(MonthViewVisibility));
         OnPropertyChanged(nameof(OverviewVisibility));
-        OnPropertyChanged(nameof(DayViewVisibility));
+        OnPropertyChanged(nameof(WeekViewVisibility));
         OnPropertyChanged(nameof(IsMonthView));
-        OnPropertyChanged(nameof(IsDayView));
+        OnPropertyChanged(nameof(IsWeekView));
         OnPropertyChanged(nameof(CalendarGridRowHeight));
         OnPropertyChanged(nameof(WeekdayHeaderRowHeight));
         OnPropertyChanged(nameof(NavigationTitleRowHeight));
         OnPropertyChanged(nameof(NavigationTitleVisibility));
-        OnPropertyChanged(nameof(DayButtonContent));
-        OnPropertyChanged(nameof(DayButtonToolTip));
         OnPropertyChanged(nameof(PreviousStepToolTip));
         OnPropertyChanged(nameof(NextStepToolTip));
         OnPropertyChanged(nameof(AgendaEmptyText));
         OnPropertyChanged(nameof(AgendaEmptyVisibility));
         RefreshPrayerPanel();
+        RefreshTimelineViews();
         _ = RunUiOperationAsync(RefreshEventsFromCacheAsync);
     }
 
@@ -825,6 +973,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var refreshVersion = ++_eventRefreshVersion;
         var selectedDate = _selectedDate;
+        var weekStart = GetWeekStart(selectedDate);
+        var weekDates = Enumerable.Range(0, 7).Select(weekStart.AddDays).ToList();
         var visibleDays = Weeks
             .SelectMany(week => week.Days)
             .ToList();
@@ -849,6 +999,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var selectedEvents = eventsByDate.TryGetValue(selectedDate, out var cachedSelectedEvents)
             ? cachedSelectedEvents
             : MergeEvents(ApplyCalendarNames(cache.GetEventsFor(selectedDate), sourceNames), localStore.GetEventsFor(selectedDate));
+        var weekEvents = weekDates
+            .SelectMany(date => eventsByDate.TryGetValue(date, out var cachedEvents)
+                ? cachedEvents
+                : MergeEvents(ApplyCalendarNames(cache.GetEventsFor(date), sourceNames), localStore.GetEventsFor(date)))
+            .GroupBy(calendarEvent => new
+            {
+                calendarEvent.SourceId,
+                calendarEvent.Id,
+                calendarEvent.Start,
+                calendarEvent.End
+            })
+            .Select(group => group.First())
+            .OrderBy(calendarEvent => calendarEvent.IsAllDay ? 0 : 1)
+            .ThenBy(calendarEvent => calendarEvent.Start)
+            .ThenBy(calendarEvent => calendarEvent.Title, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
 
         await Dispatcher.InvokeAsync(() =>
         {
@@ -871,9 +1037,44 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 SelectedDayEvents.Add(new CalendarEventViewModel(calendarEvent));
             }
 
+            _dayTimelineEvents = SelectedDayEvents.ToList();
+            _weekTimelineEvents = weekEvents.Select(calendarEvent => new CalendarEventViewModel(calendarEvent)).ToList();
+            RefreshTimelineViews();
             OnPropertyChanged(nameof(AgendaEmptyText));
             OnPropertyChanged(nameof(AgendaEmptyVisibility));
+            OnPropertyChanged(nameof(DayListEmptyVisibility));
         });
+    }
+
+    private void RefreshTimelineViews()
+    {
+        if (!IsInitialized) return;
+
+        DayTimeline.StartDate = _selectedDate;
+        DayTimeline.DayCount = 1;
+        DayTimeline.Events = _dayTimelineEvents;
+        if (IsVisible && _sidePanelExpanded && IsDayPaneActive && DayTimelineVisibility == Visibility.Visible)
+            DayTimeline.Refresh();
+
+        WeekTimeline.StartDate = GetWeekStart(_selectedDate);
+        WeekTimeline.DayCount = 7;
+        WeekTimeline.Events = _weekTimelineEvents;
+        if (IsVisible && IsWeekView) WeekTimeline.Refresh();
+    }
+
+    private static DateOnly GetWeekStart(DateOnly date)
+    {
+        var offset = ((int)date.DayOfWeek + 6) % 7;
+        return date.AddDays(-offset);
+    }
+
+    private string GetWeekTitle()
+    {
+        var start = GetWeekStart(_selectedDate);
+        var end = start.AddDays(6);
+        return start.Month == end.Month
+            ? $"{start:dd} - {end:dd MMMM yyyy}"
+            : $"{start:dd MMM} - {end:dd MMM yyyy}";
     }
 
     private async Task SyncNowAsync()
@@ -939,36 +1140,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         CloseDayPreview();
-        if (_detailsWindow is not null)
-        {
-            _detailsWindow.UpdateEvent(calendarEvent);
-            _detailsWindow.Activate();
-            return;
-        }
-        var detailsWindow = new EventDetailsWindow(calendarEvent)
-        {
-            Owner = this
-        };
-        _detailsWindow = detailsWindow;
-        detailsWindow.DeleteRequested += (_, eventToDelete) => _ = RunUiOperationAsync(() => DeleteLocalEventAsync(eventToDelete));
-
-        PositionDetailsWindow(detailsWindow);
-        detailsWindow.Closed += (_, _) =>
-        {
-            if (ReferenceEquals(_detailsWindow, detailsWindow)) _detailsWindow = null;
-            if (!_closed && !_closingChildren && IsVisible)
-            {
-                Activate();
-            }
-        };
-
-        detailsWindow.Show();
-        detailsWindow.Activate();
+        SelectedEvent = calendarEvent;
+        _sidePanelExpanded = true;
+        SetSidePaneMode(SidePaneMode.Details);
+        UpdateSideLayout(reposition: IsVisible);
     }
 
     private void CloseEventDetails()
     {
-        _detailsWindow?.Close();
+        if (_sidePaneMode == SidePaneMode.Details)
+        {
+            SetSidePaneMode(SidePaneMode.Day);
+        }
     }
 
     private void CloseTransientWindows()
@@ -1045,7 +1228,64 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         await store.SaveAsync();
         SyncStatusText = "Local event deleted.";
+        SetSidePaneMode(SidePaneMode.Day);
         await RefreshEventsFromCacheAsync();
+    }
+
+    private void NavigateEvent_Click(object sender, RoutedEventArgs e) =>
+        OpenUrl(SelectedEvent?.MapsUrl);
+
+    private void JoinTeamsEvent_Click(object sender, RoutedEventArgs e) =>
+        OpenUrl(SelectedEvent?.TeamsMeetingUrl);
+
+    private void OpenEventLink_Click(object sender, RoutedEventArgs e) =>
+        OpenUrl(SelectedEvent?.SourceUrl);
+
+    private void DeleteEvent_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedEvent is not { IsLocalEvent: true } calendarEvent) return;
+        _keepOpenForChildWindow = true;
+        MessageBoxResult result;
+        try
+        {
+            result = MessageBox.Show(
+                this,
+                "Remove this local event?",
+                "Delete event",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+        }
+        finally
+        {
+            _keepOpenForChildWindow = false;
+        }
+        if (result == MessageBoxResult.Yes)
+        {
+            _ = RunUiOperationAsync(() => DeleteLocalEventAsync(calendarEvent));
+        }
+    }
+
+    private static void OpenUrl(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.ToString()) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            AppDiagnostics.Log("Open event web link", ex);
+            MessageBox.Show(
+                "The link could not be opened. Check your default browser.",
+                "Week Calendar",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
     }
 
     private void MoreButton_Click(object sender, RoutedEventArgs e)
@@ -1093,30 +1333,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         return year - (year % 10);
     }
 
-    private void PositionDetailsWindow(Window detailsWindow)
-    {
-        var workArea = PopupPositioner.GetWorkArea(this);
-        detailsWindow.MaxHeight = Math.Max(200, workArea.Height - 16);
-        detailsWindow.Height = Math.Min(detailsWindow.Height, detailsWindow.MaxHeight);
-        var left = Left - detailsWindow.Width - 10;
-        if (left < workArea.Left)
-        {
-            left = Left + Width + 10;
-        }
-
-        if (left + detailsWindow.Width > workArea.Right)
-        {
-            left = workArea.Right - detailsWindow.Width - 8;
-        }
-
-        var top = Math.Min(
-            Math.Max(Top, workArea.Top + 8),
-            workArea.Bottom - detailsWindow.Height - 8);
-
-        detailsWindow.Left = left;
-        detailsWindow.Top = top;
-    }
-
     private void SyncCoordinator_EventsChanged(object? sender, EventArgs e)
     {
         if (_closed || Dispatcher.HasShutdownStarted) return;
@@ -1161,7 +1377,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         CloseDayPreview();
         CloseTransientWindows();
         ++_eventRefreshVersion;
-        _prayerTimer.Stop();
+        _uiTimer.Stop();
         _syncCoordinator.EventsChanged -= SyncCoordinator_EventsChanged;
         _syncCoordinator.SettingsChanged -= SyncCoordinator_SettingsChanged;
         base.OnClosed(e);
