@@ -2,7 +2,7 @@
 
 Week Calendar Tray is a lightweight Windows tray calendar with ISO week numbers, local events, read-only iCal/ICS subscriptions, and optional locally calculated prayer times. It runs beside the Windows clock and opens its own popup; it does not replace the built-in Windows calendar flyout.
 
-The current version is **1.4.0**, following the merged 1.3.0 resizing update.
+The current version is **1.4.1**, following the merged 1.3.0 resizing update.
 
 Version 1.4.0 unifies the expanded day agenda, prayer times, and event details in one side pane. The main calendar switches between Month and a scrollable Week timeline. `Today` returns to the current date without changing between Month and Week.
 

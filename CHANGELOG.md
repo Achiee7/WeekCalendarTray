@@ -2,6 +2,12 @@
 
 All notable changes to Week Calendar Tray are documented here. The format follows Keep a Changelog, and releases use semantic versioning.
 
+## [1.4.1] - 2026-09-15
+
+### Fixed
+
+- Reset the tooltip layout test to a collapsed, compact calendar so its side-space assertion is valid on smaller CI desktops. The initial 1.4.0 tag did not produce a release package because this check failed.
+
 ## [1.4.0] - 2026-09-15
 
 ### Added

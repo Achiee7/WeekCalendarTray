@@ -18,6 +18,11 @@ internal static class TooltipAndDetailsLayoutTests
 
     private static void TestBoundedDayPreview(MainWindow mainWindow)
     {
+        if (mainWindow.SidePanelVisibility == Visibility.Visible)
+        {
+            mainWindow.ToggleSidePanelCommand.Execute(null);
+        }
+        mainWindow.Width = mainWindow.MinWidth;
         var workArea = SystemParameters.WorkArea;
         mainWindow.WindowStartupLocation = WindowStartupLocation.Manual;
         mainWindow.Left = workArea.Left + Math.Min(320d, Math.Max(0d, workArea.Width - mainWindow.Width));

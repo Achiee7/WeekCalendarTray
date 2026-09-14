@@ -6,7 +6,7 @@ Week Calendar Tray is a .NET 8 WPF notification-area utility for Windows. It pre
 
 ## Release State
 
-- Current release version: `1.4.0`, prepared on 2026-09-15 after integrating the merged `1.3.0` resizing/day-view work and performance improvements.
+- Current release version: `1.4.1`, prepared on 2026-09-15 after integrating the merged `1.3.0` resizing/day-view work and performance improvements. The initial 1.4.0 CI run exposed a tooltip test setup assumption on smaller desktops; 1.4.1 resets its window geometry before checking placement.
 - The shared side pane defaults to selected-day content (List or Timeline, saved as `DayViewLayout`), offers Prayer only when enabled, and displays event details inline. The main Month/Week control preserves Today as date navigation. Week columns resize with the popup and scroll horizontally below their readable minimum.
 - Release build, core smoke tests, and UI checks pass for the development update. Rendered layout artifacts are in `C:\tmp\calendar-1.4.0`; these contain synthetic events only. New native desktop blur tests were not run for this update.
 - Performance follow-up: unchanged timeline renders are skipped; hidden timeline visuals are released; marker updates reuse elements (0 bytes allocated across 1000 same-minute updates in the regression test). Prayer settings/timetables and tray icons are cached with invalidation; disabled notifications stop polling. Updated tests pass in `C:\tmp\calendar-1.4.0-perf`. The attempted first-open desktop capture was skipped because its background could not be reliably observed.
