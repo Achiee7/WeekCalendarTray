@@ -75,8 +75,84 @@ jobs:
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: week-calendar-tray-win-x64
+          name: week-calendar-tray-win-x64-unsigned
           path: dist/WeekCalendarTray-win-x64.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  sign:
+    name: Sign release package
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: windows-2025
+    environment: release-signing
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download unsigned package
+        uses: actions/download-artifact@v8
+        with:
+          name: week-calendar-tray-win-x64-unsigned
+          path: signing-input
+
+      - name: Extract package
+        shell: pwsh
+        run: Expand-Archive -LiteralPath .\signing-input\WeekCalendarTray-win-x64.zip -DestinationPath .\signing-output
+
+      - name: Sign in to Azure using OpenID Connect
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign shipped executables, libraries, and scripts
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\signing-output\WeekCalendarTray
+          files-folder-filter: exe,dll,ps1
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify every shipped Authenticode signature
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -LiteralPath .\signing-output\WeekCalendarTray -File -Recurse |
+            Where-Object { $_.Extension -in @('.exe', '.dll', '.ps1') })
+          if ($files.Count -eq 0) {
+            throw 'The release package contains no signable files.'
+          }
+
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              throw "Invalid signature for '$($file.FullName)': $($signature.Status) $($signature.StatusMessage)"
+            }
+            if ($null -eq $signature.SignerCertificate -or $null -eq $signature.SignerCertificate.GetRSAPublicKey()) {
+              throw "'$($file.FullName)' is not signed with RSA."
+            }
+            if ($null -eq $signature.TimeStamperCertificate) {
+              throw "'$($file.FullName)' is missing an RFC 3161 timestamp."
+            }
+          }
+
+      - name: Create signed release archive
+        shell: pwsh
+        run: Compress-Archive -LiteralPath .\signing-output\WeekCalendarTray -DestinationPath .\signing-output\WeekCalendarTray-win-x64.zip
+
+      - name: Upload signed package artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: week-calendar-tray-win-x64
+          path: signing-output/WeekCalendarTray-win-x64.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -84,7 +160,7 @@ jobs:
   release:
     name: Create GitHub release
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: build
+    needs: sign
     runs-on: windows-latest
     permissions:
       contents: write

@@ -1,6 +1,23 @@
 # Releasing Week Calendar Tray
 
-This project publishes an unsigned, self-contained `win-x64` zip. The repository workflow can create a GitHub release from a semantic version tag, but maintainers remain responsible for reviewing and creating the tag.
+This project publishes a self-contained `win-x64` zip. New GitHub releases are Authenticode-signed with RSA and RFC 3161 timestamped using Azure Artifact Signing. The repository workflow creates a GitHub release from a semantic version tag, but maintainers remain responsible for reviewing and creating the tag.
+
+## 0. Configure Production Signing Once
+
+Smart App Control may block unknown or unsigned executables, DLLs, installers, and scripts. A GitHub account alone cannot establish publisher trust: set up a publicly trusted code-signing identity first. The workflow uses Azure Artifact Signing so no code-signing private key is stored in GitHub.
+
+1. Create and identity-validate an Azure Artifact Signing account and an RSA public-trust certificate profile. The account endpoint must match the account's Azure region.
+2. Create a Microsoft Entra application/service principal, grant it the `Artifact Signing Certificate Profile Signer` role for that certificate profile, and add a federated credential restricted to this repository's `release-signing` GitHub environment.
+3. In GitHub, create an environment named `release-signing`. Require an approval reviewer if appropriate. Add these environment secrets:
+   * `AZURE_CLIENT_ID`
+   * `AZURE_TENANT_ID`
+   * `AZURE_SUBSCRIPTION_ID`
+   * `AZURE_ARTIFACT_SIGNING_ENDPOINT` (for example, `https://<region>.codesigning.azure.net/`)
+   * `AZURE_ARTIFACT_SIGNING_ACCOUNT_NAME`
+   * `AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE_NAME`
+4. Tag releases only after this configuration succeeds. The workflow fails closed if it cannot sign or validate every shipped `.exe`, `.dll`, and `.ps1` file. The release archive is created only after validation.
+
+For a manual release using a certificate from a CA in the Microsoft Trusted Root Program, use the local publishing option below. Do not commit a `.pfx`, certificate password, or Azure credential.
 
 ## 1. Prepare The Version
 
@@ -24,6 +41,12 @@ dotnet run --project .\tests\WeekCalendarTray.UiTests\WeekCalendarTray.UiTests.c
 ```
 
 Record the actual results. Do not carry forward success claims from an older build.
+
+To produce a manually signed package, install an RSA code-signing certificate with its private key in the current-user or local-machine `My` certificate store, then run:
+
+    .\scripts\Publish-Release.ps1 -Runtime win-x64 -SigningCertificateThumbprint <40-hex-character-thumbprint>
+
+The script signs and validates every shipped `.exe`, `.dll`, and `.ps1` file before creating the zip. It uses the Microsoft Artifact Signing timestamp service by default; pass `-TimestampServer` only when your certificate provider requires a different RFC 3161 endpoint.
 
 Inspect `dist\WeekCalendarTray-win-x64.zip` and confirm it contains one top-level `WeekCalendarTray` folder with:
 
@@ -52,7 +75,7 @@ Review `%LOCALAPPDATA%\WeekCalendarTray\Logs` for sanitized diagnostic entries a
 
 ## 4. Create The Release Tag
 
-The workflow accepts tags shaped like `vMAJOR.MINOR.PATCH`, for example `v1.2.0`. Tagged CI checks that the tag matches the project version, then runs the same Windows build, smoke-test harness, and staged publish steps. If they succeed, a separate job downloads the exact workflow artifact and creates a GitHub release with generated notes.
+The workflow accepts tags shaped like `vMAJOR.MINOR.PATCH`, for example `v1.2.0`. Tagged CI checks that the tag matches the project version, then runs the same Windows build, smoke-test harness, and staged publish steps. A protected signing job then downloads that package, signs and validates its executables, libraries, and PowerShell installer scripts, recreates the zip, and uploads the signed artifact. The release job uses that exact signed artifact to create the GitHub release with generated notes. Branch and pull-request builds upload an unsigned package artifact for test purposes only; they never create a release.
 
 The release job uses the repository-provided `GITHUB_TOKEN` with `contents: write`. No personal access token or repository secret is required. Branch and pull-request workflows upload the zip as a run artifact but do not create releases.
 
@@ -65,4 +88,4 @@ Tag creation and pushing are deliberate maintainer actions and are not performed
 - Install the downloaded asset on a clean or representative Windows user profile.
 - Open a new `Unreleased` changelog section for subsequent work.
 
-The package is currently unsigned. Document any future signing process separately; do not add or commit private signing material.
+Never add or commit private signing material. If publisher identity or signing configuration changes, expect SmartScreen reputation to rebuild; keep the same verified publisher identity whenever possible.

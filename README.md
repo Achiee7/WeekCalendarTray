@@ -143,7 +143,7 @@ Settings, local events, caches, and logs are retained by default. Add `-RemoveUs
 - Prayer calculations use the PC timezone, so coordinates in another timezone can produce incorrect local times.
 - Windows-native glass is platform-specific and does not reproduce Apple Liquid Glass refraction exactly.
 - Version 1.2.0 has not yet been validated across display sleep/resume, Remote Desktop, or scaling/display transitions.
-- Release packages currently target `win-x64` and are not code-signed.
+- Release packages target `win-x64`. New official tagged releases are Authenticode-signed with an RSA certificate and timestamped before publication. Builds from source and non-release CI artifacts are not official releases and might be unsigned.
 - Native crash reports observed while running from a network share cannot be declared fixed without longer local-install observation.
 
 ## License

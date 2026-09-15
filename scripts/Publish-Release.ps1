@@ -2,7 +2,11 @@
 param(
     [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)+$')]
     [string]$Runtime = "win-x64",
-    [switch]$NoZip
+    [switch]$NoZip,
+    [ValidatePattern('^[0-9A-Fa-f]{40}$')]
+    [string]$SigningCertificateThumbprint,
+    [ValidatePattern('^https?://')]
+    [string]$TimestampServer = "http://timestamp.acs.microsoft.com"
 )
 
 Set-StrictMode -Version Latest
@@ -90,6 +94,76 @@ function Move-SafeItem {
     Move-Item -LiteralPath $safeSource -Destination $safeDestination
 }
 
+function Get-CodeSigningCertificate {
+    param([Parameter(Mandatory)][string]$Thumbprint)
+
+    $normalizedThumbprint = $Thumbprint.Replace(" ", "").ToUpperInvariant()
+    $certificate = Get-Item -LiteralPath "Cert:\CurrentUser\My\$normalizedThumbprint" -ErrorAction SilentlyContinue
+    if ($null -eq $certificate) {
+        $certificate = Get-Item -LiteralPath "Cert:\LocalMachine\My\$normalizedThumbprint" -ErrorAction SilentlyContinue
+    }
+
+    if ($null -eq $certificate) {
+        throw "Code-signing certificate '$normalizedThumbprint' was not found in Cert:\CurrentUser\My or Cert:\LocalMachine\My."
+    }
+    if (-not $certificate.HasPrivateKey) {
+        throw "Code-signing certificate '$normalizedThumbprint' does not have an accessible private key."
+    }
+    if ($null -eq $certificate.GetRSAPublicKey()) {
+        throw "Code-signing certificate '$normalizedThumbprint' is not RSA. Smart App Control requires RSA signatures."
+    }
+
+    return $certificate
+}
+
+function Get-PackageSignableFiles {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+
+    return @(Get-ChildItem -LiteralPath $PackageRoot -File -Recurse |
+        Where-Object { $_.Extension -in @(".exe", ".dll", ".ps1") })
+}
+
+function Assert-PackageSignatures {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+
+    $signableFiles = Get-PackageSignableFiles -PackageRoot $PackageRoot
+    if ($signableFiles.Count -eq 0) {
+        throw "No executable, library, or PowerShell files were found to sign in '$PackageRoot'."
+    }
+
+    foreach ($signableFile in $signableFiles) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $signableFile.FullName
+        if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+            throw "Invalid Authenticode signature for '$($signableFile.FullName)': $($signature.Status) $($signature.StatusMessage)"
+        }
+        if ($null -eq $signature.SignerCertificate -or $null -eq $signature.SignerCertificate.GetRSAPublicKey()) {
+            throw "'$($signableFile.FullName)' is not signed with an RSA certificate."
+        }
+        if ($null -eq $signature.TimeStamperCertificate) {
+            throw "'$($signableFile.FullName)' is missing an RFC 3161 timestamp."
+        }
+    }
+}
+
+function Sign-PackageFiles {
+    param(
+        [Parameter(Mandatory)][string]$PackageRoot,
+        [Parameter(Mandatory)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [Parameter(Mandatory)][string]$TimestampUrl
+    )
+
+    foreach ($signableFile in (Get-PackageSignableFiles -PackageRoot $PackageRoot)) {
+        $result = Set-AuthenticodeSignature `
+            -LiteralPath $signableFile.FullName `
+            -Certificate $Certificate `
+            -TimestampServer $TimestampUrl `
+            -HashAlgorithm SHA256
+        if ($result.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+            throw "Signing '$($signableFile.FullName)' failed: $($result.Status) $($result.StatusMessage)"
+        }
+    }
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).ProviderPath
 $projectPath = Join-Path $repoRoot "src\WeekCalendarTray\WeekCalendarTray.csproj"
 $distRoot = Join-Path $repoRoot "dist"
@@ -101,6 +175,10 @@ $stagedApp = Join-Path $stageRoot "WeekCalendarTray"
 $stagedZip = Join-Path $stageRoot "WeekCalendarTray-$Runtime.zip"
 $publishBackup = Join-Path $distRoot ".publish-backup-$operationId"
 $zipBackup = Join-Path $distRoot ".zip-backup-$operationId.zip"
+$signingCertificate = $null
+if (-not [string]::IsNullOrWhiteSpace($SigningCertificateThumbprint)) {
+    $signingCertificate = Get-CodeSigningCertificate -Thumbprint $SigningCertificateThumbprint
+}
 
 $requiredSources = @(
     $projectPath,
@@ -185,6 +263,11 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $stagedApp $packageFile) -PathType Leaf)) {
             throw "Published package is missing '$packageFile'. Existing release output was not replaced."
         }
+    }
+
+    if ($null -ne $signingCertificate) {
+        Sign-PackageFiles -PackageRoot $stagedApp -Certificate $signingCertificate -TimestampUrl $TimestampServer
+        Assert-PackageSignatures -PackageRoot $stagedApp
     }
 
     if (-not $NoZip) {
